@@ -36,3 +36,28 @@ tasks:
     desc: Clean build artifacts
     cmds:
       - rm -rf {{.BUILD_DIR}}
+
+  install-cli:
+    desc: Symlink/install markd executable wrapper to ~/.local/bin/markd
+    deps: [build]
+    cmds:
+      - mkdir -p ~/.local/bin
+      - |
+        cat << 'EOF' > ~/.local/bin/markd
+        #!/usr/bin/env bash
+        set -euo pipefail
+        export QT_PREFIX="{{.QT_DIR}}"
+        export DYLD_FRAMEWORK_PATH="$QT_PREFIX/lib:${DYLD_FRAMEWORK_PATH:-}"
+        export DYLD_LIBRARY_PATH="$QT_PREFIX/lib:${DYLD_LIBRARY_PATH:-}"
+        export QT_PLUGIN_PATH="$QT_PREFIX/plugins"
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PREFIX/plugins/platforms"
+        BINARY="{{.ROOT_DIR}}/build/markd"
+        if [[ ! -x "$BINARY" ]]; then
+          echo "Error: Markd binary not found at $BINARY. Run 'task build' first." >&2
+          exit 1
+        fi
+        exec "$BINARY" "$@"
+        EOF
+      - chmod +x ~/.local/bin/markd
+      - ~/.local/bin/markd --version
+
