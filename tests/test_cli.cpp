@@ -6,9 +6,11 @@
 #include <QTextStream>
 #include <QAction>
 #include <QMenuBar>
+#include <QFile>
 #include "../src/CommandLineOptions.h"
 #include "../src/MainWindow.h"
 #include "../src/MenuBuilder.h"
+#include "../src/Theme.h"
 
 void testCommandLineOptions() {
     // Test 1: Empty args
@@ -170,6 +172,37 @@ void testWindowAndMenuIntegrity() {
     std::cout << "PASS: Window and Menu integrity tests passed!\n";
 }
 
+void testThemeEngine(QApplication& app) {
+    // 1. Verify resource exists in Qt VFS
+    assert(QFile::exists(":/theme/theme.qss"));
+
+    // 2. Apply theme
+    Theme::apply(app);
+
+    // 3. Verify stylesheet is loaded and non-empty
+    QString qss = app.styleSheet();
+    assert(!qss.isEmpty());
+
+    // 4. Verify Obsidian palette color tokens in stylesheet
+    assert(qss.contains("#050505"));
+    assert(qss.contains("#0d1117"));
+    assert(qss.contains("#1e242c"));
+    assert(qss.contains("#161b22"));
+
+    // 5. Verify scrollbar styling in stylesheet
+    assert(qss.contains("QScrollBar:vertical"));
+    assert(qss.contains("width: 7px"));
+    assert(qss.contains("#21262d"));
+
+    // 6. Verify QPalette fallback window color
+    assert(app.palette().color(QPalette::Window) == QColor("#050505"));
+    assert(app.palette().color(QPalette::Base) == QColor("#050505"));
+    assert(app.palette().color(QPalette::Text) == QColor("#f0f6fc"));
+    assert(app.palette().color(QPalette::Highlight) == QColor("#161b22"));
+
+    std::cout << "PASS: Theme engine tests passed!\n";
+}
+
 int main(int argc, char* argv[]) {
     // Run QApplication in offscreen platform mode for headless automated test suite
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -177,6 +210,7 @@ int main(int argc, char* argv[]) {
 
     testCommandLineOptions();
     testWindowAndMenuIntegrity();
+    testThemeEngine(app);
 
     return 0;
 }

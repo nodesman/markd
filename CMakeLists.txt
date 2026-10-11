@@ -27,6 +27,9 @@ set(SOURCES
     src/MenuBuilder.cpp
     src/MainWindow.h
     src/MainWindow.cpp
+    src/Theme.h
+    src/Theme.cpp
+    resources/theme.qrc
 )
 
 add_executable(markd ${SOURCES})
@@ -54,6 +57,9 @@ add_executable(test_cli
     src/MenuBuilder.cpp
     src/MainWindow.h
     src/MainWindow.cpp
+    src/Theme.h
+    src/Theme.cpp
+    resources/theme.qrc
 )
 
 target_link_libraries(test_cli PRIVATE

@@ -2,6 +2,7 @@
 #include <iostream>
 #include "MainWindow.h"
 #include "CommandLineOptions.h"
+#include "Theme.h"
 
 int main(int argc, char* argv[])
 {
@@ -11,6 +12,9 @@ int main(int argc, char* argv[])
     QApplication::setApplicationVersion("1.0.0");
     QApplication::setOrganizationDomain("markd.org");
     QApplication::setOrganizationName("Markd");
+
+    // Apply Master Obsidian Theme
+    Theme::apply(app);
 
     // Parse CLI options
     CommandLineOptions options = CommandLineOptions::parse(app.arguments());
