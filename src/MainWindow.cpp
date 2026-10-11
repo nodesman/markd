@@ -22,7 +22,7 @@ void MainWindow::setupUI()
 {
     // Strict Standalone Window Architecture:
     // Strictly Zero-Tabs (no QTabWidget, no tab bar).
-    // Root container mounts HeaderBar above central editor viewport
+    // Root container mounts HeaderBar above central viewport stack
     QWidget* rootContainer = new QWidget(this);
     rootContainer->setObjectName("rootCanvas");
     QVBoxLayout* rootLayout = new QVBoxLayout(rootContainer);
@@ -35,11 +35,28 @@ void MainWindow::setupUI()
     m_modeSwitcher = new ModeSwitcher(m_headerBar->centerSlot());
     m_headerBar->centerSlot()->layout()->addWidget(m_modeSwitcher);
 
+    // Mount QStackedWidget for Dual Viewports (Edit = 0, Preview = 1)
+    m_viewportStack = new QStackedWidget(this);
+    m_viewportStack->setObjectName("viewportStack");
+    m_viewportStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_viewportStack->setMinimumSize(0, 0);
+
     m_editor = new QPlainTextEdit(this);
     m_editor->setObjectName("central_editor");
-    rootLayout->addWidget(m_editor);
+    m_editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_editor->setMinimumSize(0, 0);
+    m_viewportStack->addWidget(m_editor); // Index 0: Edit
+
+    m_previewView = new PreviewView(this);
+    m_viewportStack->addWidget(m_previewView); // Index 1: Preview
+
+    m_viewportStack->setCurrentIndex(0);
+    rootLayout->addWidget(m_viewportStack);
 
     setCentralWidget(rootContainer);
+
+    // Connect mode switching signal
+    connect(m_modeSwitcher, &ModeSwitcher::modeChanged, this, &MainWindow::onModeChanged);
 
     // Apply native platform window hooks (Cocoa style masks, full size content view)
     PlatformFrame::setupWindow(this);
@@ -213,6 +230,24 @@ void MainWindow::onAbout()
            "<p>High-performance native Markdown viewer and editor.</p>"
            "<p>Engineered for command-line developers and power users.</p>")
     );
+}
+
+void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
+{
+    if (!m_viewportStack) return;
+
+    if (mode == ModeSwitcher::DocumentMode::Edit) {
+        m_viewportStack->setCurrentIndex(0);
+        if (m_editor) {
+            activateWindow();
+            m_editor->setFocus(Qt::OtherFocusReason);
+        }
+    } else {
+        m_viewportStack->setCurrentIndex(1);
+        if (m_previewView && m_editor) {
+            m_previewView->setMarkdown(m_editor->toPlainText());
+        }
+    }
 }
 
 void MainWindow::changeEvent(QEvent* event)

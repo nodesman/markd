@@ -1,0 +1,508 @@
+:root {
+    --bg: #050505;
+    --text: #f0f6fc;
+    --text-secondary: #8b949e;
+    --code-bg: #0d1117;
+    --border: #1e242c;
+    --link: #58a6ff;
+    --heading: #f0f6fc;
+    --blockquote-border: #1e242c;
+    --blockquote-bg: #0d1117;
+    --table-stripe: #0d1117;
+    --table-header-bg: #161b22;
+    --task-check: #3fb950;
+    --hr: #1e242c;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #050505;
+        --text: #f0f6fc;
+        --text-secondary: #8b949e;
+        --code-bg: #0d1117;
+        --border: #1e242c;
+        --link: #58a6ff;
+        --heading: #f0f6fc;
+        --blockquote-border: #1e242c;
+        --blockquote-bg: #0d1117;
+        --table-stripe: #0d1117;
+        --table-header-bg: #161b22;
+        --task-check: #3fb950;
+        --hr: #1e242c;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text);
+    background-color: #050505;
+    background: #050505;
+    padding: 28px 36px;
+    max-width: 880px;
+    margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--heading);
+    font-weight: 600;
+    margin-top: 1.6em;
+    margin-bottom: 0.6em;
+    line-height: 1.3;
+    scroll-margin-top: 16px;
+}
+
+h1 {
+    font-size: 2em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+h2 {
+    font-size: 1.5em;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3em;
+}
+
+h3 { font-size: 1.25em; }
+h4 { font-size: 1.1em; }
+h5 { font-size: 1em; }
+h6 { font-size: 0.9em; color: var(--text-secondary); }
+
+/* Paragraphs */
+p {
+    margin: 0 0 1em;
+}
+
+/* Links */
+a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Emphasis */
+strong { font-weight: 600; }
+
+/* Horizontal rules */
+hr {
+    border: none;
+    border-top: 1px solid var(--hr);
+    margin: 2em 0;
+}
+
+/* Code */
+code {
+    font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+    font-size: 0.88em;
+}
+
+:not(pre) > code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+pre {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 1em 0;
+    line-height: 1.5;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    font-size: 13px;
+}
+
+/* Blockquotes */
+blockquote {
+    border-left: 4px solid var(--blockquote-border);
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    background: var(--blockquote-bg);
+    border-radius: 0 6px 6px 0;
+    color: var(--text-secondary);
+}
+
+blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+/* Lists */
+ul, ol {
+    padding-left: 2em;
+    margin: 0 0 1em;
+}
+
+li {
+    margin: 0.25em 0;
+}
+
+li > p {
+    margin: 0.5em 0;
+}
+
+/* Task lists */
+.task-list-item {
+    list-style-type: none;
+    margin-left: -1.5em;
+}
+
+.task-list-item input[type="checkbox"] {
+    margin-right: 0.5em;
+    accent-color: var(--task-check);
+}
+
+/* Tables */
+.table-wrapper {
+    position: relative;
+    margin: 1em 0;
+}
+
+.table-wrapper .table-expand-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 5px;
+    background: var(--table-header-bg);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+
+.table-wrapper:hover .table-expand-btn {
+    opacity: 1;
+}
+
+.table-wrapper .table-expand-btn:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.95em;
+}
+
+th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+th {
+    background: var(--table-header-bg);
+    font-weight: 600;
+}
+
+tr:nth-child(even) {
+    background: var(--table-stripe);
+}
+
+/* Images */
+img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    margin: 0.5em 0;
+}
+
+/* ---- Expandable containers (diagrams + tables) ---- */
+.expandable-container {
+    position: relative;
+    margin: 1.5em 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.expandable-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+}
+
+.expandable-toolbar button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.expandable-toolbar button:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+.expandable-toolbar .zoom-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 36px;
+    text-align: center;
+}
+
+.expandable-content {
+    overflow: auto;
+    padding: 16px;
+}
+
+/* Mermaid zoom/pan viewport */
+.mermaid-viewport {
+    overflow: hidden;
+    cursor: grab;
+    min-height: 100px;
+}
+
+.mermaid-viewport:active {
+    cursor: grabbing;
+}
+
+.mermaid-viewport .mermaid-inner {
+    transform-origin: 0 0;
+    transition: transform 0.1s ease-out;
+    display: inline-block;
+}
+
+/* Mermaid diagrams */
+.mermaid {
+    text-align: center;
+    background: transparent;
+}
+
+/* ---- Full-view overlay ---- */
+.fullview-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.fullview-overlay.visible {
+    opacity: 1;
+}
+
+.fullview-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    padding: 8px 12px;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.fullview-toolbar button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.fullview-toolbar button:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+.fullview-body {
+    flex: 1;
+    overflow: auto;
+    padding: 24px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.fullview-body.is-diagram {
+    cursor: grab;
+    overflow: hidden;
+}
+
+.fullview-body.is-diagram:active {
+    cursor: grabbing;
+}
+
+.fullview-inner {
+    transform-origin: 0 0;
+    transition: transform 0.1s ease-out;
+}
+
+/* Tables inside fullview should not be constrained */
+.fullview-body table {
+    width: auto;
+    min-width: 100%;
+}
+
+/* KaTeX math */
+.katex-display {
+    margin: 1em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* Definition lists (if rendered) */
+dt {
+    font-weight: 600;
+    margin-top: 1em;
+}
+
+dd {
+    margin-left: 2em;
+    margin-bottom: 0.5em;
+}
+
+/* Strikethrough */
+del {
+    color: var(--text-secondary);
+}
+
+/* Selection */
+::selection {
+    background: rgba(41, 151, 255, 0.3);
+}
+
+/* ---- Find bar ---- */
+#markd-find-bar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+#markd-find-input {
+    flex: 1;
+    max-width: 300px;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    outline: none;
+}
+
+#markd-find-input:focus {
+    border-color: var(--link);
+}
+
+#markd-find-count {
+    font-size: 11px;
+    color: var(--text-secondary);
+    min-width: 60px;
+}
+
+#markd-find-bar button {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#markd-find-bar button:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+.markd-find-highlight {
+    background: rgba(255, 210, 0, 0.4);
+    border-radius: 2px;
+}
+
+.markd-find-highlight.markd-find-active {
+    background: rgba(255, 150, 0, 0.6);
+    outline: 2px solid rgba(255, 150, 0, 0.8);
+}
+
+/* ---- Print styles ---- */
+@media print {
+    body {
+        background: white;
+        color: black;
+        padding: 0;
+        max-width: none;
+    }
+
+    .expandable-toolbar,
+    .table-expand-btn,
+    .fullview-overlay {
+        display: none !important;
+    }
+
+    pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    a { color: black; text-decoration: underline; }
+    a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #666; }
+}

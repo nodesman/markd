@@ -15,7 +15,7 @@ if(APPLE AND NOT DEFINED CMAKE_PREFIX_PATH)
     endif()
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel)
 
 include_directories(src)
 
@@ -33,7 +33,14 @@ set(COMMON_SOURCES
     src/HeaderBar.cpp
     src/ModeSwitcher.h
     src/ModeSwitcher.cpp
+    src/WebBridge.h
+    src/WebBridge.cpp
+    src/Converter.h
+    src/Converter.cpp
+    src/PreviewView.h
+    src/PreviewView.cpp
     resources/theme.qrc
+    resources/web.qrc
 )
 
 if(APPLE)
@@ -55,6 +62,8 @@ target_link_libraries(markd PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::WebEngineWidgets
+    Qt6::WebChannel
 )
 
 if(APPLE)
@@ -76,6 +85,8 @@ target_link_libraries(test_cli PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::WebEngineWidgets
+    Qt6::WebChannel
 )
 
 if(APPLE)

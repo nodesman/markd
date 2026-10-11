@@ -7,6 +7,10 @@
 #include <QAction>
 #include <QMenuBar>
 #include <QFile>
+#include <QStackedWidget>
+#include <QPlainTextEdit>
+#include <QWebEngineView>
+#include <QTabBar>
 #include "../src/CommandLineOptions.h"
 #include "../src/MainWindow.h"
 #include "../src/MenuBuilder.h"
@@ -14,6 +18,8 @@
 #include "../src/PlatformFrame.h"
 #include "../src/HeaderBar.h"
 #include "../src/ModeSwitcher.h"
+#include "../src/PreviewView.h"
+#include "../src/Converter.h"
 
 void testCommandLineOptions() {
     // Test 1: Empty args
@@ -391,6 +397,122 @@ void testModeSwitcher(QApplication& app) {
     std::cout << "PASS: ModeSwitcher tests passed!\n";
 }
 
+void testOfflineAssetSelfContainment() {
+    // Verify all presentation engine assets exist in compiled Qt VFS (zero network egress)
+    assert(QFile::exists(":/web/template.html"));
+    assert(QFile::exists(":/web/css/obsidian.css"));
+    assert(QFile::exists(":/web/css/style.css"));
+    assert(QFile::exists(":/web/js/qwebchannel.js"));
+    assert(QFile::exists(":/web/js/katex.min.css"));
+    assert(QFile::exists(":/web/js/katex.min.js"));
+    assert(QFile::exists(":/web/js/highlight.min.js"));
+    assert(QFile::exists(":/web/js/markdown-it.min.js"));
+    assert(QFile::exists(":/web/js/render.js"));
+
+    std::cout << "PASS: Offline asset self-containment tests passed!\n";
+}
+
+void testConverterPipeline() {
+    // 1. HTML escaping
+    assert(Converter::escapeHtml("<div>&\"'</div>") == "&lt;div&gt;&amp;&quot;&#39;&lt;/div&gt;");
+
+    // 2. Markdown to HTML fragment
+    QString md = "# Title\n\n**Bold Text** and `code`";
+    QString html = Converter::toHtmlFragment(md);
+    assert(html.contains("Title"));
+    assert(html.contains("Bold Text"));
+    assert(html.contains("code"));
+
+    // 3. Full document generation with Obsidian stylesheet
+    QString fullDoc = Converter::toFullHtmlDocument(md);
+    assert(fullDoc.contains("<!DOCTYPE html>"));
+    assert(fullDoc.contains("#050505"));
+    assert(fullDoc.contains("qrc:/web/css/obsidian.css"));
+    assert(fullDoc.contains("Title"));
+
+    std::cout << "PASS: Converter pipeline tests passed!\n";
+}
+
+void testDualViewports(QApplication& app) {
+    MainWindow win;
+    win.resize(900, 650);
+    win.show();
+    win.activateWindow();
+    app.processEvents();
+
+    // 1. Structural Containment & Zero-Tabs Assertion
+    assert(!win.centralWidget()->inherits("QTabWidget"));
+    assert(win.findChild<QTabBar*>() == nullptr);
+
+    auto* stack = win.findChild<QStackedWidget*>("viewportStack");
+    assert(stack != nullptr);
+    assert(stack->count() == 2);
+    assert(win.viewportStack() == stack);
+
+    // 2. Public API Non-Regression
+    assert(win.editor() != nullptr);
+    assert(win.editor() == stack->widget(0)); // Edit mode at index 0
+
+    // PreviewView at index 1
+    assert(win.previewView() != nullptr);
+    assert(win.previewView() == stack->widget(1));
+
+    // 3. Buffer Permanence Test
+    QString testPayload = "# Sovereign Header\n\nPreserved buffer test with formula: $$x^2 + y^2 = z^2$$";
+    win.editor()->setPlainText(testPayload);
+    assert(win.documentBuffer() == testPayload);
+
+    // 4. Deterministic Stack Mapping
+    assert(win.modeSwitcher()->currentMode() == ModeSwitcher::DocumentMode::Edit);
+    assert(stack->currentIndex() == 0);
+
+    // 5. Background Color Pre-Clear (White-Flash Guard)
+    auto* preview = win.findChild<QWebEngineView*>("previewView");
+    assert(preview != nullptr);
+    assert(preview->page()->backgroundColor() == QColor("#050505"));
+
+    // 6. Viewport Dynamic Size Hints
+    assert(stack->sizePolicy().horizontalPolicy() == QSizePolicy::Expanding);
+    assert(stack->sizePolicy().verticalPolicy() == QSizePolicy::Expanding);
+    assert(stack->minimumSize() == QSize(0, 0));
+    assert(win.editor()->minimumSize() == QSize(0, 0));
+    assert(win.previewView()->minimumSize() == QSize(0, 0));
+
+    // 7. IPC Architecture Bridge Pre-wiring
+    assert(win.previewView()->bridge() != nullptr);
+    assert(win.previewView()->channel() != nullptr);
+    assert(win.previewView()->channel()->registeredObjects().contains("markdBridge"));
+
+    // Toggle to Preview
+    win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Preview);
+    app.processEvents();
+    assert(stack->currentIndex() == 1);
+    assert(win.documentBuffer() == testPayload); // Buffer remains completely intact!
+
+    // Toggle back to Edit & Focus Check
+    win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Edit);
+    app.processEvents();
+    assert(stack->currentIndex() == 0);
+    assert(win.documentBuffer() == testPayload);
+    assert(win.editor()->hasFocus() || win.focusWidget() == win.editor());
+
+    // Keyboard shortcut action toggle
+    QAction* toggleAction = win.findChild<QAction*>("action_toggle_mode");
+    assert(toggleAction != nullptr);
+    toggleAction->trigger();
+    app.processEvents();
+    assert(stack->currentIndex() == 1);
+    assert(win.documentBuffer() == testPayload);
+
+    toggleAction->trigger();
+    app.processEvents();
+    assert(stack->currentIndex() == 0);
+    assert(win.documentBuffer() == testPayload);
+    assert(win.editor()->hasFocus() || win.focusWidget() == win.editor());
+
+    std::cout << "PASS: Dual viewports tests passed!\n";
+}
+
 int main(int argc, char* argv[]) {
     // Run QApplication in offscreen platform mode for headless automated test suite
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -401,6 +523,9 @@ int main(int argc, char* argv[]) {
     testThemeEngine(app);
     testPlatformFrame(app);
     testModeSwitcher(app);
+    testOfflineAssetSelfContainment();
+    testConverterPipeline();
+    testDualViewports(app);
 
     return 0;
 }
