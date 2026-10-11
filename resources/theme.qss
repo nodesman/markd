@@ -86,22 +86,26 @@ QFrame {
     border: none;
 }
 
-/* Custom Minimalist 7px Dark Scrollbars */
+/* Accessible, Comfortable Translucent Scrollbars (Universal Cross-Platform) */
 QScrollBar:vertical {
     border: none;
     background: transparent;
-    width: 7px;
-    margin: 0px;
+    width: 10px;
+    margin: 0px 1px 0px 0px;
 }
 
 QScrollBar::handle:vertical {
-    background-color: #21262d;
-    min-height: 20px;
-    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.16);
+    min-height: 28px;
+    border-radius: 5px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #30363d;
+    background-color: rgba(255, 255, 255, 0.28);
+}
+
+QScrollBar::handle:vertical:pressed {
+    background-color: rgba(255, 255, 255, 0.40);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -117,18 +121,22 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 QScrollBar:horizontal {
     border: none;
     background: transparent;
-    height: 7px;
-    margin: 0px;
+    height: 10px;
+    margin: 0px 0px 1px 0px;
 }
 
 QScrollBar::handle:horizontal {
-    background-color: #21262d;
-    min-width: 20px;
-    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.16);
+    min-width: 28px;
+    border-radius: 5px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background-color: #30363d;
+    background-color: rgba(255, 255, 255, 0.28);
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background-color: rgba(255, 255, 255, 0.40);
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {

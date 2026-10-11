@@ -189,10 +189,10 @@ void testThemeEngine(QApplication& app) {
     assert(qss.contains("#1e242c"));
     assert(qss.contains("#161b22"));
 
-    // 5. Verify scrollbar styling in stylesheet
+    // 5. Verify accessible, comfortable translucent scrollbar styling in stylesheet
     assert(qss.contains("QScrollBar:vertical"));
-    assert(qss.contains("width: 7px"));
-    assert(qss.contains("#21262d"));
+    assert(qss.contains("width: 10px"));
+    assert(qss.contains("rgba(255, 255, 255, 0.16)"));
 
     // 6. Verify QPalette fallback window color
     assert(app.palette().color(QPalette::Window) == QColor("#050505"));
