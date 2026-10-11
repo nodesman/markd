@@ -6,6 +6,14 @@ QMainWindow, QWidget#rootCanvas {
     color: #f0f6fc;
 }
 
+/* Platform Window Frame HeaderBar */
+#windowHeaderBar {
+    background-color: #050505;
+    border-bottom: 1px solid #1e242c;
+    min-height: 38px;
+    max-height: 38px;
+}
+
 /* Editor and Viewport background */
 QPlainTextEdit, QTextEdit {
     background-color: #050505;

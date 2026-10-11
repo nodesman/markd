@@ -4,6 +4,7 @@
 #include <QString>
 #include <QPlainTextEdit>
 #include "MenuBuilder.h"
+#include "HeaderBar.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -16,6 +17,10 @@ public:
     QString currentFilePath() const { return m_filePath; }
     QString documentBuffer() const;
     QPlainTextEdit* editor() const { return m_editor; }
+    HeaderBar* headerBar() const { return m_headerBar; }
+
+protected:
+    void changeEvent(QEvent* event) override;
 
 private slots:
     void onOpen();
@@ -32,6 +37,7 @@ private:
     void updateWindowTitle();
 
     QString m_filePath;
+    HeaderBar* m_headerBar = nullptr;
     QPlainTextEdit* m_editor = nullptr;
     MenuBuilder::Actions m_actions;
     qreal m_currentZoom = 1.0;

@@ -22,10 +22,24 @@ void MainWindow::setupUI()
 {
     // Strict Standalone Window Architecture:
     // Strictly Zero-Tabs (no QTabWidget, no tab bar).
-    // Central viewport is a temporary unstyled QPlainTextEdit showing raw content.
+    // Root container mounts HeaderBar above central editor viewport
+    QWidget* rootContainer = new QWidget(this);
+    rootContainer->setObjectName("rootCanvas");
+    QVBoxLayout* rootLayout = new QVBoxLayout(rootContainer);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    m_headerBar = new HeaderBar(this);
+    rootLayout->addWidget(m_headerBar);
+
     m_editor = new QPlainTextEdit(this);
     m_editor->setObjectName("central_editor");
-    setCentralWidget(m_editor);
+    rootLayout->addWidget(m_editor);
+
+    setCentralWidget(rootContainer);
+
+    // Apply native platform window hooks (Cocoa style masks, full size content view)
+    PlatformFrame::setupWindow(this);
 
     // Build declarative menubar matching menu_items.yml
     m_actions = MenuBuilder::buildMenuBar(menuBar(), this);
@@ -191,4 +205,14 @@ void MainWindow::onAbout()
            "<p>High-performance native Markdown viewer and editor.</p>"
            "<p>Engineered for command-line developers and power users.</p>")
     );
+}
+
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange) {
+        if (m_headerBar) {
+            m_headerBar->updateMargins();
+        }
+    }
 }
