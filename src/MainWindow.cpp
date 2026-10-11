@@ -32,6 +32,9 @@ void MainWindow::setupUI()
     m_headerBar = new HeaderBar(this);
     rootLayout->addWidget(m_headerBar);
 
+    m_modeSwitcher = new ModeSwitcher(m_headerBar->centerSlot());
+    m_headerBar->centerSlot()->layout()->addWidget(m_modeSwitcher);
+
     m_editor = new QPlainTextEdit(this);
     m_editor->setObjectName("central_editor");
     rootLayout->addWidget(m_editor);
@@ -43,6 +46,11 @@ void MainWindow::setupUI()
 
     // Build declarative menubar matching menu_items.yml
     m_actions = MenuBuilder::buildMenuBar(menuBar(), this);
+
+    // Connect View Mode Action (Cmd+E / Ctrl+E)
+    if (m_actions.toggleModeAction) {
+        connect(m_actions.toggleModeAction, &QAction::triggered, m_modeSwitcher, &ModeSwitcher::toggleMode);
+    }
 
     // Connect Standard File Actions
     if (m_actions.openAction) {

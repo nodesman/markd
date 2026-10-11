@@ -31,6 +31,8 @@ set(COMMON_SOURCES
     src/PlatformFrame.h
     src/HeaderBar.h
     src/HeaderBar.cpp
+    src/ModeSwitcher.h
+    src/ModeSwitcher.cpp
     resources/theme.qrc
 )
 

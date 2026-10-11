@@ -31,6 +31,7 @@ void HeaderBar::setupUI()
     auto* centerLayout = new QHBoxLayout(m_centerSlot);
     centerLayout->setContentsMargins(0, 0, 0, 0);
     centerLayout->setSpacing(0);
+    centerLayout->setAlignment(Qt::AlignCenter);
 
     m_rightSpacer = new QWidget(this);
     m_rightSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -41,11 +42,11 @@ void HeaderBar::setupUI()
     trailingLayout->setContentsMargins(0, 0, 0, 0);
     trailingLayout->setSpacing(0);
 
-    layout->addWidget(m_leadingSlot);
-    layout->addWidget(m_leftSpacer);
-    layout->addWidget(m_centerSlot);
-    layout->addWidget(m_rightSpacer);
-    layout->addWidget(m_trailingSlot);
+    layout->addWidget(m_leadingSlot, 0);
+    layout->addWidget(m_leftSpacer, 1);
+    layout->addWidget(m_centerSlot, 0);
+    layout->addWidget(m_rightSpacer, 1);
+    layout->addWidget(m_trailingSlot, 0);
 
     updateMargins();
 }
