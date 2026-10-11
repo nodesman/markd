@@ -1,0 +1,38 @@
+version: '3'
+
+vars:
+  QT_DIR: /Users/rajsekharan/Qt/6.5.3/macos
+  BUILD_DIR: build
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  configure:
+    desc: Configure CMake build for Markd with Qt 6.5.3
+    cmds:
+      - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake
+
+  build:
+    desc: Compile Markd executable and test suite
+    deps: [configure]
+    cmds:
+      - cmake --build {{.BUILD_DIR}} -j8
+
+  test:
+    desc: Run CTest test suite
+    deps: [build]
+    cmds:
+      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
+
+  run:
+    desc: Run Markd executable with optional markdown file (e.g. task run -- file.md)
+    deps: [build]
+    cmds:
+      - ./{{.BUILD_DIR}}/markd {{.CLI_ARGS}}
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
