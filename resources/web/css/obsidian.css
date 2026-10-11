@@ -44,8 +44,8 @@ html, body {
 
 /* Floating Translucent Scrollbars (Option A: Desktop Standard) */
 ::-webkit-scrollbar {
-    width: 14px;
-    height: 14px;
+    width: 8px;
+    height: 8px;
     background: transparent;
 }
 
@@ -55,15 +55,13 @@ html, body {
 
 ::-webkit-scrollbar-thumb {
     background-color: rgba(255, 255, 255, 0.22);
-    border-radius: 7px;
-    border: 3px solid transparent;
-    background-clip: padding-box;
+    border-radius: 4px;
+    border: none;
     min-height: 36px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.40);
-    background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-corner {

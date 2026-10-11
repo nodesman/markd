@@ -98,25 +98,25 @@ QFrame {
 QScrollBar:vertical {
     border: none;
     background: transparent;
-    width: 14px;
-    margin: 4px 0px 4px 0px;
+    width: 8px;
+    margin: 4px 2px 4px 0px;
 }
 
 QScrollBar::handle:vertical {
     background-color: rgba(255, 255, 255, 0.22);
     min-height: 36px;
-    border-radius: 7px;
-    border: 3px solid transparent;
+    border-radius: 4px;
+    border: none;
 }
 
 QScrollBar::handle:vertical:hover {
     background-color: rgba(255, 255, 255, 0.40);
-    border: 3px solid transparent;
+    border: none;
 }
 
 QScrollBar::handle:vertical:pressed {
     background-color: rgba(255, 255, 255, 0.55);
-    border: 3px solid transparent;
+    border: none;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
