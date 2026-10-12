@@ -15,7 +15,7 @@ if(APPLE AND NOT DEFINED CMAKE_PREFIX_PATH)
     endif()
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test)
 
 include_directories(src)
 
@@ -24,6 +24,11 @@ set(COMMON_SOURCES
     src/CommandLineOptions.cpp
     src/MenuBuilder.h
     src/MenuBuilder.cpp
+    src/TocItem.h
+    src/TocParser.h
+    src/TocParser.cpp
+    src/TocWidget.h
+    src/TocWidget.cpp
     src/MainWindow.h
     src/MainWindow.cpp
     src/Theme.h
@@ -87,6 +92,7 @@ target_link_libraries(test_cli PRIVATE
     Qt6::Widgets
     Qt6::WebEngineWidgets
     Qt6::WebChannel
+    Qt6::Test
 )
 
 if(APPLE)

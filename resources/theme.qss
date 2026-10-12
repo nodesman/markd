@@ -189,3 +189,36 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     color: #f0f6fc;
 }
 
+/* Table of Contents (TOC) Sidebar (Task 9) */
+#tocSidebar {
+    background-color: #0d1117;
+    border-right: 1px solid #1e242c;
+}
+
+#tocView {
+    background-color: transparent;
+    border: none;
+    outline: none;
+    color: #8b949e;
+    selection-background-color: #161b22;
+    selection-color: #f0f6fc;
+}
+
+#tocPlaceholderLabel {
+    color: #8b949e;
+    font-size: 13px;
+    background-color: transparent;
+    qproperty-alignment: 'AlignCenter';
+}
+
+/* Splitter Divider Hairline Styling Tokens */
+QSplitter::handle:horizontal {
+    background-color: #1e242c;
+    width: 1px;
+}
+
+QSplitter::handle:horizontal:hover,
+QSplitter::handle:horizontal:pressed {
+    background-color: #58a6ff;
+}
+

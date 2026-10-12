@@ -5,6 +5,8 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QFont>
+#include <QTextBlock>
+#include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
     : QMainWindow(parent)
@@ -15,14 +17,17 @@ MainWindow::MainWindow(const QString& filePath, QWidget* parent)
         loadFile(filePath);
     } else {
         updateWindowTitle();
+        updateToc();
     }
 }
 
 void MainWindow::setupUI()
 {
+    qRegisterMetaType<TocItem>();
+
     // Strict Standalone Window Architecture:
     // Strictly Zero-Tabs (no QTabWidget, no tab bar).
-    // Root container mounts HeaderBar above central viewport stack
+    // Root container mounts HeaderBar above central horizontal QSplitter
     QWidget* rootContainer = new QWidget(this);
     rootContainer->setObjectName("rootCanvas");
     QVBoxLayout* rootLayout = new QVBoxLayout(rootContainer);
@@ -35,11 +40,24 @@ void MainWindow::setupUI()
     m_modeSwitcher = new ModeSwitcher(m_headerBar->centerSlot());
     m_headerBar->centerSlot()->layout()->addWidget(m_modeSwitcher);
 
-    // Mount QStackedWidget for Dual Viewports (Edit = 0, Preview = 1)
+    // Mount horizontal QSplitter (mainSplitter) beneath m_headerBar
+    m_mainSplitter = new QSplitter(Qt::Horizontal, this);
+    m_mainSplitter->setObjectName("mainSplitter");
+    m_mainSplitter->setChildrenCollapsible(false);
+
+    // Index 0: TocWidget (Outline Sidebar)
+    m_tocWidget = new TocWidget(this);
+    m_tocWidget->setObjectName("tocSidebar");
+    m_tocWidget->setAccessibleName(tr("Table of Contents"));
+    m_tocWidget->setMinimumWidth(200);
+    m_tocWidget->setMaximumWidth(600);
+    m_mainSplitter->addWidget(m_tocWidget);
+
+    // Index 1: QStackedWidget for Dual Viewports (Edit = 0, Preview = 1)
     m_viewportStack = new QStackedWidget(this);
     m_viewportStack->setObjectName("viewportStack");
     m_viewportStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_viewportStack->setMinimumSize(0, 0);
+    m_viewportStack->setMinimumWidth(320); // Central reading pane minimum width constraint
 
     m_editor = new QPlainTextEdit(this);
     m_editor->setObjectName("central_editor");
@@ -51,12 +69,38 @@ void MainWindow::setupUI()
     m_viewportStack->addWidget(m_previewView); // Index 1: Preview
 
     m_viewportStack->setCurrentIndex(0);
-    rootLayout->addWidget(m_viewportStack);
+    m_mainSplitter->addWidget(m_viewportStack);
 
+    // Viewport Protection Invariants & Stretch Factors
+    m_mainSplitter->setCollapsible(0, true);
+    m_mainSplitter->setCollapsible(1, false);
+    m_mainSplitter->setStretchFactor(0, 0);
+    m_mainSplitter->setStretchFactor(1, 1);
+    m_mainSplitter->setSizes({m_savedWidth, 900 - m_savedWidth});
+
+    rootLayout->addWidget(m_mainSplitter);
     setCentralWidget(rootContainer);
+
+    // Connect splitter moved slot
+    connect(m_mainSplitter, &QSplitter::splitterMoved, this, &MainWindow::onSplitterMoved);
 
     // Connect mode switching signal
     connect(m_modeSwitcher, &ModeSwitcher::modeChanged, this, &MainWindow::onModeChanged);
+
+    // Connect TOC jump and scroll-spy
+    connect(m_tocWidget, &TocWidget::headingActivated, this, &MainWindow::onHeadingActivated);
+    connect(m_previewView, &PreviewView::activeHeadingChanged, m_tocWidget, &TocWidget::setActiveHeading);
+
+    // Debounced typing timer (150ms) for real-time outline parsing
+    m_tocDebounceTimer = new QTimer(this);
+    m_tocDebounceTimer->setSingleShot(true);
+    m_tocDebounceTimer->setInterval(150);
+    connect(m_tocDebounceTimer, &QTimer::timeout, this, &MainWindow::updateToc);
+    connect(m_editor, &QPlainTextEdit::textChanged, this, [this]() {
+        if (m_tocDebounceTimer) {
+            m_tocDebounceTimer->start();
+        }
+    });
 
     // Apply native platform window hooks (Cocoa style masks, full size content view)
     PlatformFrame::setupWindow(this);
@@ -67,6 +111,11 @@ void MainWindow::setupUI()
     // Connect View Mode Action (Cmd+E / Ctrl+E)
     if (m_actions.toggleModeAction) {
         connect(m_actions.toggleModeAction, &QAction::triggered, m_modeSwitcher, &ModeSwitcher::toggleMode);
+    }
+
+    // Connect Toggle Sidebar Action (Cmd+\ / Ctrl+\)
+    if (m_actions.toggleSidebarAction) {
+        connect(m_actions.toggleSidebarAction, &QAction::triggered, this, &MainWindow::toggleSidebar);
     }
 
     // Connect Standard File Actions
@@ -122,12 +171,121 @@ void MainWindow::setupUI()
     resize(900, 650);
 }
 
+void MainWindow::onSplitterMoved(int pos, int index)
+{
+    if (index == 1) { // Splitter handle between pane 0 (sidebar) and pane 1 (viewport)
+        int total = m_mainSplitter->sizes().value(0, 0) + m_mainSplitter->sizes().value(1, 0);
+        if (total <= 0) total = width();
+
+        if (pos > 0) {
+            m_savedWidth = std::max(pos, 200);
+            if (m_collapsed) {
+                m_collapsed = false;
+                m_tocWidget->setMinimumWidth(200);
+                m_mainSplitter->setSizes({pos, std::max(320, total - pos)});
+                emit sidebarToggled(false);
+            }
+        } else if (pos == 0) {
+            // Interactive Drag-to-Zero Guard: mark collapsed without wiping m_savedWidth
+            if (!m_collapsed) {
+                m_collapsed = true;
+                m_tocWidget->setMinimumWidth(0);
+                m_mainSplitter->setSizes({0, total});
+                emit sidebarToggled(true);
+            }
+        }
+    }
+}
+
+void MainWindow::setSidebarCollapsed(bool collapsed)
+{
+    if (m_collapsed == collapsed) return;
+
+    QList<int> currentSizes = m_mainSplitter->sizes();
+    int totalWidth = currentSizes.value(0, 0) + currentSizes.value(1, 0);
+    if (totalWidth <= 0) totalWidth = width();
+
+    if (collapsed) {
+        if (currentSizes.value(0, 0) > 0) {
+            m_savedWidth = std::max(currentSizes.at(0), 200);
+        }
+        m_collapsed = true;
+        m_tocWidget->setMinimumWidth(0);
+        m_mainSplitter->setSizes({0, totalWidth});
+        emit sidebarToggled(true);
+    } else {
+        m_collapsed = false;
+        m_tocWidget->setMinimumWidth(200);
+        int targetWidth = std::max(m_savedWidth, 200);
+        int rest = std::max(320, totalWidth - targetWidth);
+        m_mainSplitter->setSizes({targetWidth, rest});
+        emit sidebarToggled(false);
+    }
+}
+
+void MainWindow::toggleSidebar()
+{
+    setSidebarCollapsed(!m_collapsed);
+}
+
+bool MainWindow::restoreSplitterState(const QByteArray& state)
+{
+    bool ok = m_mainSplitter->restoreState(state);
+    if (ok) {
+        int currentWidth = m_mainSplitter->sizes().value(0, 0);
+        m_collapsed = (currentWidth == 0);
+        if (m_collapsed) {
+            m_tocWidget->setMinimumWidth(0);
+        } else {
+            m_tocWidget->setMinimumWidth(200);
+            m_savedWidth = std::max(currentWidth, 200);
+        }
+    }
+    return ok;
+}
+
+void MainWindow::onHeadingActivated(const QString& id)
+{
+    const auto& items = m_tocWidget->headings();
+    auto it = std::find_if(items.begin(), items.end(), [&id](const TocItem& item) {
+        return item.id == id;
+    });
+
+    if (it == items.end()) return;
+
+    if (m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Edit) {
+        int line = it->lineNumber;
+        QTextDocument* doc = m_editor->document();
+        QTextBlock block = doc->findBlockByLineNumber(line - 1);
+        if (block.isValid()) {
+            QTextCursor cursor(block);
+            m_editor->setTextCursor(cursor);
+            m_editor->centerCursor();
+            m_editor->setFocus();
+        }
+    } else {
+        m_previewView->scrollToHeading(id);
+    }
+}
+
+void MainWindow::updateToc()
+{
+    if (m_tocDebounceTimer && m_tocDebounceTimer->isActive()) {
+        m_tocDebounceTimer->stop();
+    }
+    std::vector<TocItem> items = TocParser::extractHeadings(documentBuffer());
+    if (m_tocWidget) {
+        m_tocWidget->setHeadings(items);
+    }
+}
+
 bool MainWindow::loadFile(const QString& filePath)
 {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_filePath = filePath;
         updateWindowTitle();
+        updateToc();
         return false;
     }
 
@@ -136,6 +294,7 @@ bool MainWindow::loadFile(const QString& filePath)
     m_editor->setPlainText(content);
     m_filePath = filePath;
     updateWindowTitle();
+    updateToc();
     return true;
 }
 
@@ -186,6 +345,7 @@ void MainWindow::onSave()
         QTextStream out(&file);
         out << m_editor->toPlainText();
         updateWindowTitle();
+        updateToc();
     }
 }
 
@@ -235,6 +395,8 @@ void MainWindow::onAbout()
 void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 {
     if (!m_viewportStack) return;
+
+    updateToc();
 
     if (mode == ModeSwitcher::DocumentMode::Edit) {
         m_viewportStack->setCurrentIndex(0);

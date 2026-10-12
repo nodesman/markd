@@ -67,3 +67,9 @@ void PreviewView::setMarkdown(const QString& markdown)
     QString js = QString("if (typeof renderMarkdown === 'function') { renderMarkdown(%1[0]); }").arg(jsonString);
     m_webView->page()->runJavaScript(js);
 }
+
+void PreviewView::scrollToHeading(const QString& id)
+{
+    QString js = QString("if (typeof scrollToHeading === 'function') { scrollToHeading('%1'); }").arg(id);
+    m_webView->page()->runJavaScript(js);
+}

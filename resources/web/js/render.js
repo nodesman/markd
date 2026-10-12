@@ -142,7 +142,7 @@ async function renderMarkdown(markdownText) {
 // ---- TOC extraction ----
 
 function extractAndSendTOC() {
-    var headings = document.querySelectorAll('#content h1[id], #content h2[id], #content h3[id], #content h4[id]');
+    var headings = document.querySelectorAll('#content h1[id], #content h2[id], #content h3[id], #content h4[id], #content h5[id], #content h6[id]');
     var toc = [];
     headings.forEach(function (h) {
         toc.push({
@@ -169,7 +169,7 @@ function setupScrollSpy() {
         scrollSpyObserver.disconnect();
     }
 
-    var headings = document.querySelectorAll('#content h1[id], #content h2[id], #content h3[id], #content h4[id]');
+    var headings = document.querySelectorAll('#content h1[id], #content h2[id], #content h3[id], #content h4[id], #content h5[id], #content h6[id]');
     if (headings.length === 0) return;
 
     scrollSpyObserver = new IntersectionObserver(function (entries) {

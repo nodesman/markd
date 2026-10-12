@@ -4,10 +4,15 @@
 #include <QString>
 #include <QPlainTextEdit>
 #include <QStackedWidget>
+#include <QSplitter>
+#include <QTimer>
+#include <QByteArray>
 #include "MenuBuilder.h"
 #include "HeaderBar.h"
 #include "ModeSwitcher.h"
 #include "PreviewView.h"
+#include "TocWidget.h"
+#include "TocParser.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -24,6 +29,21 @@ public:
     HeaderBar* headerBar() const { return m_headerBar; }
     ModeSwitcher* modeSwitcher() const { return m_modeSwitcher; }
     QStackedWidget* viewportStack() const { return m_viewportStack; }
+    QSplitter* mainSplitter() const { return m_mainSplitter; }
+    TocWidget* tocWidget() const { return m_tocWidget; }
+
+    bool isSidebarCollapsed() const { return m_collapsed; }
+    int sidebarSavedWidth() const { return m_savedWidth; }
+    void setSidebarSavedWidth(int w) { m_savedWidth = std::max(w, 200); }
+    void setSidebarCollapsed(bool collapsed);
+    void toggleSidebar();
+    bool restoreSplitterState(const QByteArray& state);
+
+signals:
+    void sidebarToggled(bool collapsed);
+
+public slots:
+    void updateToc();
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -38,6 +58,8 @@ private slots:
     void onActualSize();
     void onAbout();
     void onModeChanged(ModeSwitcher::DocumentMode mode);
+    void onSplitterMoved(int pos, int index);
+    void onHeadingActivated(const QString& id);
 
 private:
     void setupUI();
@@ -46,10 +68,15 @@ private:
     QString m_filePath;
     HeaderBar* m_headerBar = nullptr;
     ModeSwitcher* m_modeSwitcher = nullptr;
+    QSplitter* m_mainSplitter = nullptr;
+    TocWidget* m_tocWidget = nullptr;
     QStackedWidget* m_viewportStack = nullptr;
     QPlainTextEdit* m_editor = nullptr;
     PreviewView* m_previewView = nullptr;
     MenuBuilder::Actions m_actions;
     qreal m_currentZoom = 1.0;
-};
 
+    int m_savedWidth = 250;
+    bool m_collapsed = false;
+    QTimer* m_tocDebounceTimer = nullptr;
+};
