@@ -100,3 +100,24 @@ if(APPLE)
 endif()
 
 add_test(NAME test_cli COMMAND test_cli)
+
+add_executable(test_render_js
+    tests/test_render_js.cpp
+    ${COMMON_SOURCES}
+)
+
+target_link_libraries(test_render_js PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::WebEngineWidgets
+    Qt6::WebChannel
+    Qt6::Test
+)
+
+if(APPLE)
+    target_link_libraries(test_render_js PRIVATE "-framework Cocoa")
+endif()
+
+add_test(NAME test_render_js COMMAND test_render_js)
+

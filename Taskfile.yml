@@ -24,7 +24,7 @@ tasks:
     desc: Run CTest test suite
     deps: [build]
     cmds:
-      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
+      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure --verbose
 
   run:
     desc: Run Markd executable with optional markdown file (e.g. task run -- file.md)

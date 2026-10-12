@@ -27,6 +27,7 @@
 #include "../src/TocItem.h"
 #include "../src/TocParser.h"
 #include "../src/TocWidget.h"
+#include "test_render_js.h"
 
 void testCommandLineOptions() {
     // Test 1: Empty args
@@ -931,6 +932,7 @@ int main(int argc, char* argv[]) {
     testTask9TocSidebarIntegration(app);
     testTask9EdgeCases(app);
     testTaskP1PreviewEditorialErgonomics(app);
+    testRenderJsEngine(app);
 
     return 0;
 }
