@@ -368,6 +368,10 @@ function openFullView(contentNode, isDiagram) {
 
     var inner = document.createElement('div');
     inner.className = 'fullview-inner';
+    if (isDiagram && contentNode && contentNode.style) {
+        contentNode.style.transform = '';
+        contentNode.style.transition = '';
+    }
     inner.appendChild(contentNode);
     body.appendChild(inner);
 
@@ -380,9 +384,15 @@ function openFullView(contentNode, isDiagram) {
         overlay.classList.add('visible');
     });
 
+    var fvMouseMoveHandler = null;
+    var fvMouseUpHandler = null;
+
     // Close handler
     function closeOverlay() {
         overlay.classList.remove('visible');
+        document.removeEventListener('keydown', onKeyDown);
+        if (fvMouseMoveHandler) document.removeEventListener('mousemove', fvMouseMoveHandler);
+        if (fvMouseUpHandler) document.removeEventListener('mouseup', fvMouseUpHandler);
         setTimeout(function () { overlay.remove(); }, 200);
     }
 
@@ -392,7 +402,6 @@ function openFullView(contentNode, isDiagram) {
     function onKeyDown(e) {
         if (e.key === 'Escape') {
             closeOverlay();
-            document.removeEventListener('keydown', onKeyDown);
         }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -432,15 +441,19 @@ function openFullView(contentNode, isDiagram) {
             fvStartPanX = fvPanX; fvStartPanY = fvPanY;
             e.preventDefault();
         });
-        document.addEventListener('mousemove', function handler(e) {
+        fvMouseMoveHandler = function (e) {
             if (!fvIsPanning) return;
             fvPanX = fvStartPanX + (e.clientX - fvStartX);
             fvPanY = fvStartPanY + (e.clientY - fvStartY);
             fvApply(false);
-        });
-        document.addEventListener('mouseup', function () {
+        };
+        fvMouseUpHandler = function () {
             fvIsPanning = false;
-        });
+        };
+        document.addEventListener('mousemove', fvMouseMoveHandler);
+        document.addEventListener('mouseup', fvMouseUpHandler);
+
+        fvApply(false);
     }
 }
 

@@ -264,6 +264,31 @@ img {
     margin: 0.5em 0;
 }
 
+/* Archival Paper Matte - The Apple-Obsidian Refinement */
+#content p > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
+#content p > a > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
+#content .diagram-img,
+.fullview-body img[src*=".svg" i] {
+    background-color: #f0f6fc;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px auto;
+    display: block;
+    max-width: 90%;
+    height: auto;
+    box-sizing: border-box;
+}
+
+/* Universal contrast guard for transparent PNG diagrams */
+#content img.diagram-png,
+#content img[data-diagram="true"],
+#content img[alt*="diagram" i][src$=".png" i],
+#content img[alt*="architecture" i][src$=".png" i],
+#content img[src*="diagram" i][src$=".png" i] {
+    filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.45));
+}
+
 /* ---- Expandable containers (diagrams + tables) ---- */
 .expandable-container {
     position: relative;
@@ -321,6 +346,7 @@ img {
     overflow: hidden;
     cursor: grab;
     min-height: 100px;
+    text-align: center;
 }
 
 .mermaid-viewport:active {
@@ -328,15 +354,22 @@ img {
 }
 
 .mermaid-viewport .mermaid-inner {
-    transform-origin: 0 0;
+    transform-origin: top center;
     transition: transform 0.1s ease-out;
     display: inline-block;
+    text-align: left;
 }
 
 /* Mermaid diagrams */
 .mermaid {
     text-align: center;
     background: transparent;
+}
+
+.mermaid svg {
+    margin: 0 auto;
+    display: block;
+    max-width: none;
 }
 
 /* ---- Full-view overlay ---- */
@@ -398,6 +431,8 @@ img {
 .fullview-body.is-diagram {
     cursor: grab;
     overflow: hidden;
+    display: block;
+    text-align: center;
 }
 
 .fullview-body.is-diagram:active {
@@ -407,6 +442,12 @@ img {
 .fullview-inner {
     transform-origin: 0 0;
     transition: transform 0.1s ease-out;
+}
+
+.fullview-body.is-diagram .fullview-inner {
+    display: inline-block;
+    text-align: left;
+    transform-origin: top center;
 }
 
 /* Tables inside fullview should not be constrained */
@@ -533,4 +574,28 @@ del {
 
     a { color: black; text-decoration: underline; }
     a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #666; }
+
+    #content p > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
+    #content p > a > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
+    #content .diagram-img,
+    .fullview-body img[src*=".svg" i] {
+        background-color: transparent !important;
+        border: 1px solid #d0d7de !important;
+    }
+
+    .mermaid-viewport .mermaid-inner,
+    .fullview-inner {
+        transform: none !important;
+    }
+
+    .mermaid-viewport {
+        overflow: visible !important;
+    }
+
+    .mermaid-viewport,
+    .expandable-container,
+    .diagram-img {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
 }
