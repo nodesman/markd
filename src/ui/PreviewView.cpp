@@ -89,16 +89,31 @@ void PreviewView::setMarkdown(const QString& markdown)
         return;
     }
 
-    // Call JavaScript renderMarkdown function in template.html
-    // Safe JSON serialization of string
+    // Call JavaScript render markdown via structured window.Markd or legacy fallback with promise trap
     QString jsonString = QString::fromUtf8(QJsonDocument(QJsonArray{markdown}).toJson(QJsonDocument::Compact));
-    QString js = QString("if (typeof renderMarkdown === 'function') { renderMarkdown(%1[0]); }").arg(jsonString);
+    QString js = QString(
+        "(function(text) {"
+        "    var p = (window.Markd && typeof window.Markd.render === 'function')"
+        "        ? window.Markd.render(text)"
+        "        : (typeof renderMarkdown === 'function' ? renderMarkdown(text) : Promise.resolve());"
+        "    if (p && typeof p.catch === 'function') {"
+        "        p.catch(function(err) { console.error('Markd render error:', err); });"
+        "    }"
+        "})(%1[0]);"
+    ).arg(jsonString);
     m_webView->page()->runJavaScript(js);
 }
 
 void PreviewView::scrollToHeading(const QString& id)
 {
-    QString js = QString("if (typeof scrollToHeading === 'function') { scrollToHeading('%1'); }").arg(id);
+    QString jsonId = QString::fromUtf8(QJsonDocument(QJsonArray{id}).toJson(QJsonDocument::Compact));
+    QString js = QString(
+        "if (window.Markd && typeof window.Markd.scrollToHeading === 'function') { "
+        "    window.Markd.scrollToHeading(%1[0]); "
+        "} else if (typeof scrollToHeading === 'function') { "
+        "    scrollToHeading(%1[0]); "
+        "}"
+    ).arg(jsonId);
     m_webView->page()->runJavaScript(js);
 }
 

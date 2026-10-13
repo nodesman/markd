@@ -356,7 +356,20 @@ function setupDiagramZoomPan(container, viewport, inner) {
 
 // ---- Full-view overlay ----
 
+var activeFullViewClose = null;
+
+function closeFullView(immediate) {
+    if (activeFullViewClose) {
+        activeFullViewClose(immediate);
+    }
+}
+
 function openFullView(contentNode, isDiagram) {
+    // If an overlay is currently active, close and unbind it immediately
+    if (activeFullViewClose) {
+        activeFullViewClose(true);
+    }
+
     // Remove any existing overlay
     var existing = document.querySelector('.fullview-overlay');
     if (existing) existing.remove();
@@ -406,20 +419,28 @@ function openFullView(contentNode, isDiagram) {
     var fvMouseUpHandler = null;
 
     // Close handler
-    function closeOverlay() {
+    function closeOverlay(immediate) {
+        activeFullViewClose = null;
         overlay.classList.remove('visible');
         document.removeEventListener('keydown', onKeyDown);
         if (fvMouseMoveHandler) document.removeEventListener('mousemove', fvMouseMoveHandler);
         if (fvMouseUpHandler) document.removeEventListener('mouseup', fvMouseUpHandler);
-        setTimeout(function () { overlay.remove(); }, 200);
+        if (immediate) {
+            overlay.remove();
+        } else {
+            setTimeout(function () { overlay.remove(); }, 200);
+        }
     }
+    activeFullViewClose = closeOverlay;
 
-    toolbar.querySelector('.close-btn').addEventListener('click', closeOverlay);
+    toolbar.querySelector('.close-btn').addEventListener('click', function () {
+        closeOverlay(false);
+    });
 
     // Escape key to close
     function onKeyDown(e) {
         if (e.key === 'Escape') {
-            closeOverlay();
+            closeOverlay(false);
         }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -480,6 +501,7 @@ function openFullView(contentNode, isDiagram) {
 var findBarVisible = false;
 var findHighlights = [];
 var findCurrentIndex = -1;
+var findDebounceTimer = null;
 
 function showFindBar() {
     if (findBarVisible) {
@@ -503,7 +525,6 @@ function showFindBar() {
     var input = document.getElementById('markd-find-input');
     var countEl = document.getElementById('markd-find-count');
 
-    var findDebounceTimer = null;
     input.addEventListener('input', function () {
         clearTimeout(findDebounceTimer);
         findDebounceTimer = setTimeout(function () {
@@ -527,6 +548,10 @@ function showFindBar() {
 }
 
 function closeFindBar() {
+    if (findDebounceTimer) {
+        clearTimeout(findDebounceTimer);
+        findDebounceTimer = null;
+    }
     findBarVisible = false;
     var bar = document.getElementById('markd-find-bar');
     if (bar) bar.remove();
@@ -545,7 +570,11 @@ function clearHighlights() {
 
 function performFind(query, countEl) {
     clearHighlights();
-    if (!query) { countEl.textContent = ''; return; }
+    countEl = countEl || document.getElementById('markd-find-count');
+    if (!query) {
+        if (countEl) countEl.textContent = '';
+        return;
+    }
 
     var content = document.getElementById('content');
     var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
@@ -575,7 +604,9 @@ function performFind(query, countEl) {
         node.parentNode.replaceChild(frag, node);
     });
 
-    countEl.textContent = findHighlights.length + ' found';
+    if (countEl) {
+        countEl.textContent = findHighlights.length + ' found';
+    }
     if (findHighlights.length > 0) {
         findCurrentIndex = 0;
         highlightCurrent(countEl);
@@ -583,23 +614,83 @@ function performFind(query, countEl) {
 }
 
 function findNext(countEl) {
+    countEl = countEl || document.getElementById('markd-find-count');
     if (findHighlights.length === 0) return;
     findCurrentIndex = (findCurrentIndex + 1) % findHighlights.length;
     highlightCurrent(countEl);
 }
 
 function findPrev(countEl) {
+    countEl = countEl || document.getElementById('markd-find-count');
     if (findHighlights.length === 0) return;
     findCurrentIndex = (findCurrentIndex - 1 + findHighlights.length) % findHighlights.length;
     highlightCurrent(countEl);
 }
 
 function highlightCurrent(countEl) {
+    countEl = countEl || document.getElementById('markd-find-count');
     findHighlights.forEach(function (el, i) {
         el.classList.toggle('markd-find-active', i === findCurrentIndex);
     });
     if (findHighlights[findCurrentIndex]) {
         findHighlights[findCurrentIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-    countEl.textContent = (findCurrentIndex + 1) + ' of ' + findHighlights.length;
+    if (countEl) {
+        countEl.textContent = (findCurrentIndex + 1) + ' of ' + findHighlights.length;
+    }
 }
+
+// ---- Structured Engine API (window.Markd) ----
+
+window.Markd = {
+    version: "1.0.0",
+    isReady: false,
+    render: renderMarkdown,
+    scrollToHeading: scrollToHeading,
+    find: {
+        show: showFindBar,
+        close: closeFindBar,
+        clear: clearHighlights,
+        search: performFind,
+        next: findNext,
+        prev: findPrev
+    },
+    modal: {
+        open: openFullView,
+        close: closeFullView
+    },
+    toc: {
+        extract: extractAndSendTOC,
+        update: extractAndSendTOC
+    },
+    get bridge() {
+        return window.markdBridge;
+    }
+};
+
+// Backward-compatibility aliases on global window
+window.renderMarkdown = renderMarkdown;
+window.scrollToHeading = scrollToHeading;
+window.openFullView = openFullView;
+window.closeFullView = closeFullView;
+window.showFindBar = showFindBar;
+window.closeFindBar = closeFindBar;
+window.clearHighlights = clearHighlights;
+window.performFind = performFind;
+window.findNext = findNext;
+window.findPrev = findPrev;
+window.highlightCurrent = highlightCurrent;
+window.extractAndSendTOC = extractAndSendTOC;
+window.setupScrollSpy = setupScrollSpy;
+window.wrapMermaidDiagrams = wrapMermaidDiagrams;
+window.wrapTables = wrapTables;
+
+// Signal engine readiness once DOM is fully prepared
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        window.Markd.isReady = true;
+    });
+} else {
+    window.Markd.isReady = true;
+}
+
