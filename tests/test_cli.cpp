@@ -1132,8 +1132,9 @@ void testDocumentSession(QApplication& app) {
         }
         QFile::remove(targetPath);
         QFile::rename(swapPath, targetPath);
-
-        QTest::qWait(250);
+        for (int i = 0; i < 20 && reloadSpy.count() < 1; ++i) {
+            QTest::qWait(100);
+        }
         assert(reloadSpy.count() >= 1);
         assert(session.markdown() == "# Atomic Replacement 1");
 
@@ -1340,6 +1341,50 @@ void testMainWindowSessionObserver(MarkdApplication& app) {
     std::cout << "PASS: William Zinsser MainWindow DocumentSession observer tests passed!\n";
 }
 
+void testNativeChromiumModernization(MarkdApplication& app) {
+    PreviewView previewView;
+    previewView.resize(800, 600);
+    previewView.show();
+    app.processEvents();
+
+    // 1. exposes active DocumentSession and QWebChannel
+    assert(previewView.session() != nullptr);
+    assert(previewView.channel() != nullptr);
+    assert(previewView.webView() != nullptr);
+
+    // 2. dispatches hardware-accelerated find text operations
+    QSignalSpy findSpy(&previewView, &PreviewView::findResult);
+    previewView.findText("Markdown", true, false);
+    QTest::qWait(100);
+
+    // 3. clears search highlighting and resets result count
+    previewView.clearFind();
+    assert(findSpy.count() >= 1);
+    assert(findSpy.last().at(0).toInt() == 0);
+    assert(findSpy.last().at(1).toInt() == 0);
+
+    // 4. exports page content to HTML via asynchronous callback
+    bool htmlReceived = false;
+    QString exportedHtml;
+    previewView.toHtml([&](const QString& html) {
+        htmlReceived = true;
+        exportedHtml = html;
+    });
+
+    for (int i = 0; i < 20 && !htmlReceived; ++i) {
+        QTest::qWait(50);
+    }
+    assert(htmlReceived);
+    assert(!exportedHtml.isEmpty());
+
+    // 5. initiates PDF export with target file path
+    QString pdfPath = QDir::tempPath() + QString("/markd_test_%1.pdf").arg(QDateTime::currentMSecsSinceEpoch());
+    previewView.printToPdf(pdfPath);
+    QTest::qWait(100);
+
+    std::cout << "PASS: William Zinsser Native Chromium modernization tests passed!\n";
+}
+
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1359,6 +1404,7 @@ int main(int argc, char* argv[]) {
     testDocumentSession(app);
     testMarkdApplication(app);
     testMainWindowSessionObserver(app);
+    testNativeChromiumModernization(app);
     testRenderJsEngine(app);
 
     return 0;

@@ -3,6 +3,7 @@
 #include "DocumentSession.h"
 #include <QVBoxLayout>
 #include <QWebEnginePage>
+#include <QWebEngineFindTextResult>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QUrl>
@@ -40,6 +41,11 @@ PreviewView::PreviewView(QWidget* parent)
 
     connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
     connect(m_session, &DocumentSession::activeHeadingChanged, this, &PreviewView::activeHeadingChanged);
+
+    // Native hardware-accelerated Chromium search result notification
+    connect(m_webView->page(), &QWebEnginePage::findTextFinished, this, [this](const QWebEngineFindTextResult& result) {
+        emit findResult(result.activeMatch(), result.numberOfMatches());
+    });
 
     connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
         m_pageLoaded = ok;
@@ -101,5 +107,64 @@ void PreviewView::setZoomFactor(qreal factor)
 {
     if (m_webView) {
         m_webView->setZoomFactor(factor);
+    }
+}
+
+void PreviewView::findText(const QString& text, bool forward, bool caseSensitive)
+{
+    m_lastFindText = text;
+    m_lastFindCaseSensitive = caseSensitive;
+    if (!m_webView) return;
+
+    if (text.isEmpty()) {
+        clearFind();
+        return;
+    }
+
+    QWebEnginePage::FindFlags flags;
+    if (!forward) {
+        flags |= QWebEnginePage::FindBackward;
+    }
+    if (caseSensitive) {
+        flags |= QWebEnginePage::FindCaseSensitively;
+    }
+
+    m_webView->findText(text, flags);
+}
+
+void PreviewView::findNext()
+{
+    if (!m_lastFindText.isEmpty()) {
+        findText(m_lastFindText, true, m_lastFindCaseSensitive);
+    }
+}
+
+void PreviewView::findPrevious()
+{
+    if (!m_lastFindText.isEmpty()) {
+        findText(m_lastFindText, false, m_lastFindCaseSensitive);
+    }
+}
+
+void PreviewView::clearFind()
+{
+    m_lastFindText.clear();
+    if (m_webView) {
+        m_webView->findText(QString());
+    }
+    emit findResult(0, 0);
+}
+
+void PreviewView::printToPdf(const QString& filePath, const QPageLayout& layout)
+{
+    if (m_webView && m_webView->page()) {
+        m_webView->page()->printToPdf(filePath, layout);
+    }
+}
+
+void PreviewView::toHtml(const std::function<void(const QString&)>& callback)
+{
+    if (m_webView && m_webView->page()) {
+        m_webView->page()->toHtml(callback);
     }
 }
