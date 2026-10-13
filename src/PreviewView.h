@@ -19,6 +19,7 @@ public:
     void setMarkdown(const QString& markdown);
     void loadTemplate();
     void scrollToHeading(const QString& id);
+    void setZoomFactor(qreal factor);
 
 signals:
     void tocUpdated(const QString& tocJson);

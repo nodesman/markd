@@ -73,3 +73,10 @@ void PreviewView::scrollToHeading(const QString& id)
     QString js = QString("if (typeof scrollToHeading === 'function') { scrollToHeading('%1'); }").arg(id);
     m_webView->page()->runJavaScript(js);
 }
+
+void PreviewView::setZoomFactor(qreal factor)
+{
+    if (m_webView) {
+        m_webView->setZoomFactor(factor);
+    }
+}

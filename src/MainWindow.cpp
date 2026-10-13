@@ -17,7 +17,9 @@ MainWindow::MainWindow(const QString& filePath, QWidget* parent)
         loadFile(filePath);
     } else {
         updateWindowTitle();
-        updateToc();
+        if (m_session) {
+            m_session->flushOutline();
+        }
     }
 }
 
@@ -91,14 +93,43 @@ void MainWindow::setupUI()
     connect(m_tocWidget, &TocWidget::headingActivated, this, &MainWindow::onHeadingActivated);
     connect(m_previewView, &PreviewView::activeHeadingChanged, m_tocWidget, &TocWidget::setActiveHeading);
 
-    // Debounced typing timer (150ms) for real-time outline parsing
-    m_tocDebounceTimer = new QTimer(this);
-    m_tocDebounceTimer->setSingleShot(true);
-    m_tocDebounceTimer->setInterval(150);
-    connect(m_tocDebounceTimer, &QTimer::timeout, this, &MainWindow::updateToc);
+    // Initialize Headless DocumentSession Single Source of Truth
+    m_session = new DocumentSession(this);
+
+    // Reactive observation of DocumentSession
+    connect(m_session, &DocumentSession::markdownChanged, this, [this](const QString& md) {
+        if (m_editor && m_editor->toPlainText() != md) {
+            m_editor->setPlainText(md);
+        }
+        if (m_previewView) {
+            m_previewView->setMarkdown(md);
+        }
+    });
+
+    connect(m_session, &DocumentSession::filePathChanged, this, &MainWindow::updateWindowTitle);
+    connect(m_session, &DocumentSession::dirtyChanged, this, &MainWindow::updateWindowTitle);
+
+    connect(m_session, &DocumentSession::tocChanged, this, [this](const std::vector<TocItem>& headings) {
+        if (m_tocWidget) {
+            m_tocWidget->setHeadings(headings);
+        }
+    });
+
+    connect(m_session, &DocumentSession::zoomFactorChanged, this, [this](qreal factor) {
+        if (m_editor) {
+            QFont f = m_editor->font();
+            f.setPointSizeF(13.0 * factor);
+            m_editor->setFont(f);
+        }
+        if (m_previewView) {
+            m_previewView->setZoomFactor(factor);
+        }
+    });
+
+    // Editor buffer mutation notifies DocumentSession
     connect(m_editor, &QPlainTextEdit::textChanged, this, [this]() {
-        if (m_tocDebounceTimer) {
-            m_tocDebounceTimer->start();
+        if (m_session && m_session->markdown() != m_editor->toPlainText()) {
+            m_session->setMarkdown(m_editor->toPlainText());
         }
     });
 
@@ -270,46 +301,36 @@ void MainWindow::onHeadingActivated(const QString& id)
 
 void MainWindow::updateToc()
 {
-    if (m_tocDebounceTimer && m_tocDebounceTimer->isActive()) {
-        m_tocDebounceTimer->stop();
-    }
-    std::vector<TocItem> items = TocParser::extractHeadings(documentBuffer());
-    if (m_tocWidget) {
-        m_tocWidget->setHeadings(items);
+    if (m_session) {
+        m_session->flushOutline();
     }
 }
 
 bool MainWindow::loadFile(const QString& filePath)
 {
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_filePath = filePath;
-        updateWindowTitle();
-        updateToc();
-        return false;
-    }
+    if (!m_session) return false;
+    return m_session->loadFile(filePath);
+}
 
-    QTextStream in(&file);
-    QString content = in.readAll();
-    m_editor->setPlainText(content);
-    m_filePath = filePath;
-    updateWindowTitle();
-    updateToc();
-    return true;
+QString MainWindow::currentFilePath() const
+{
+    return m_session ? m_session->filePath() : QString();
 }
 
 QString MainWindow::documentBuffer() const
 {
-    return m_editor ? m_editor->toPlainText() : QString();
+    return m_session ? m_session->markdown() : QString();
 }
 
 void MainWindow::updateWindowTitle()
 {
-    if (m_filePath.isEmpty()) {
-        setWindowTitle("Markd");
+    QString path = currentFilePath();
+    bool dirty = m_session ? m_session->isDirty() : false;
+    if (path.isEmpty()) {
+        setWindowTitle(dirty ? "Markd*" : "Markd");
     } else {
-        QFileInfo fi(m_filePath);
-        setWindowTitle(QString("%1 — Markd").arg(fi.fileName()));
+        QFileInfo fi(path);
+        setWindowTitle(QString("%1%2 — Markd").arg(fi.fileName(), dirty ? "*" : ""));
     }
 }
 
@@ -329,7 +350,8 @@ void MainWindow::onOpen()
 
 void MainWindow::onSave()
 {
-    if (m_filePath.isEmpty()) {
+    if (!m_session) return;
+    if (m_session->filePath().isEmpty()) {
         QString selectedFile = QFileDialog::getSaveFileName(
             this,
             tr("Save Markdown Document"),
@@ -337,15 +359,9 @@ void MainWindow::onSave()
             tr("Markdown Files (*.md *.markdown);;All Files (*)")
         );
         if (selectedFile.isEmpty()) return;
-        m_filePath = selectedFile;
-    }
-
-    QFile file(m_filePath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&file);
-        out << m_editor->toPlainText();
-        updateWindowTitle();
-        updateToc();
+        m_session->saveAs(selectedFile);
+    } else {
+        m_session->save();
     }
 }
 
@@ -365,20 +381,23 @@ void MainWindow::onToggleWordWrap()
 
 void MainWindow::onZoomIn()
 {
-    m_editor->zoomIn(1);
+    if (m_session) {
+        m_session->zoomIn();
+    }
 }
 
 void MainWindow::onZoomOut()
 {
-    m_editor->zoomOut(1);
+    if (m_session) {
+        m_session->zoomOut();
+    }
 }
 
 void MainWindow::onActualSize()
 {
-    // Reset font point size to standard default (e.g. 13pt)
-    QFont f = m_editor->font();
-    f.setPointSize(13);
-    m_editor->setFont(f);
+    if (m_session) {
+        m_session->resetZoom();
+    }
 }
 
 void MainWindow::onAbout()
@@ -396,7 +415,10 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 {
     if (!m_viewportStack) return;
 
-    updateToc();
+    if (m_session) {
+        m_session->setMode(static_cast<int>(mode));
+        m_session->flushOutline();
+    }
 
     if (mode == ModeSwitcher::DocumentMode::Edit) {
         m_viewportStack->setCurrentIndex(0);
@@ -406,8 +428,8 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
         }
     } else {
         m_viewportStack->setCurrentIndex(1);
-        if (m_previewView && m_editor) {
-            m_previewView->setMarkdown(m_editor->toPlainText());
+        if (m_previewView && m_session) {
+            m_previewView->setMarkdown(m_session->markdown());
         }
     }
 }

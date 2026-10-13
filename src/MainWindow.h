@@ -13,6 +13,7 @@
 #include "PreviewView.h"
 #include "TocWidget.h"
 #include "TocParser.h"
+#include "DocumentSession.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -21,8 +22,9 @@ public:
     explicit MainWindow(const QString& filePath = QString(), QWidget* parent = nullptr);
     ~MainWindow() override = default;
 
+    DocumentSession* session() const { return m_session; }
     bool loadFile(const QString& filePath);
-    QString currentFilePath() const { return m_filePath; }
+    QString currentFilePath() const;
     QString documentBuffer() const;
     QPlainTextEdit* editor() const { return m_editor; }
     PreviewView* previewView() const { return m_previewView; }
@@ -65,7 +67,7 @@ private:
     void setupUI();
     void updateWindowTitle();
 
-    QString m_filePath;
+    DocumentSession* m_session = nullptr;
     HeaderBar* m_headerBar = nullptr;
     ModeSwitcher* m_modeSwitcher = nullptr;
     QSplitter* m_mainSplitter = nullptr;
@@ -74,9 +76,7 @@ private:
     QPlainTextEdit* m_editor = nullptr;
     PreviewView* m_previewView = nullptr;
     MenuBuilder::Actions m_actions;
-    qreal m_currentZoom = 1.0;
 
     int m_savedWidth = 250;
     bool m_collapsed = false;
-    QTimer* m_tocDebounceTimer = nullptr;
 };
