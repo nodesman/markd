@@ -862,6 +862,14 @@ void testTaskP1PreviewEditorialErgonomics(QApplication& app) {
     assert(js.contains("document.removeEventListener('mouseup', fvMouseUpHandler);"));
     assert(js.contains("fvApply(false);")); // Initial transform matrix initialization
 
+    // Task T2: Structured Engine API (window.Markd) & Memory Leak Mitigations
+    assert(js.contains("window.Markd ="));
+    assert(js.contains("activeFullViewClose"));
+    assert(js.contains("closeFullView"));
+    assert(js.contains("countEl = countEl || document.getElementById('markd-find-count')"));
+    assert(js.contains("clearTimeout(findDebounceTimer)"));
+    assert(js.contains("findDebounceTimer = null;"));
+
     // --- Section 8: Converter Pipeline & JavaScript DOM Integration ---
     // In render.js: markdown-it language-mermaid block extraction and DOM wrapping
     assert(js.contains("language-mermaid"));

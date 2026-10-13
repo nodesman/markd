@@ -52,7 +52,7 @@ inline void waitForPageReady(PreviewView& previewView, int timeoutMs = 8000) {
         bool ready = false;
         QEventLoop checkLoop;
         page->runJavaScript(
-            "document.readyState === 'complete' && typeof renderMarkdown === 'function' && window.session !== null",
+            "document.readyState === 'complete' && window.Markd && window.Markd.isReady === true && window.session !== null",
             [&](const QVariant& val) {
                 ready = val.toBool();
                 checkLoop.quit();
@@ -124,6 +124,7 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'openFullView.closeBtn': 'Modal overlay close button handler',
             'openFullView.zoom': 'Modal diagram zoom transform handler',
             'openFullView.drag': 'Modal diagram drag pan handler',
+            'closeFullView': 'Modal overlay programmatic teardown and listener unbinding',
             'showFindBar': 'In-page find bar builder and input focus manager',
             'closeFindBar': 'Find bar removal and highlight cleanup',
             'clearHighlights': 'Find mark tag unwrapper and text normalizer',
@@ -182,7 +183,8 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'S47': 'CreateTreeWalker over content text nodes',
             'S48': 'Split text node into fragments with mark tags',
             'S49': 'Find next index increment & wrap',
-            'S50': 'Toggle markd-find-active and scrollIntoView'
+            'S50': 'Toggle markd-find-active and scrollIntoView',
+            'S51': 'Programmatic closeFullView execution and teardown'
         },
         branchMap: {
             'B1': { name: 'QWebChannel transport available', paths: ['false', 'true'] },
