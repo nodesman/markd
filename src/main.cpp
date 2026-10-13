@@ -1,17 +1,13 @@
-#include <QApplication>
-#include <iostream>
+#include "MarkdApplication.h"
 #include "MainWindow.h"
 #include "CommandLineOptions.h"
 #include "Theme.h"
+#include <iostream>
 
 int main(int argc, char* argv[])
 {
-    // Initialize QApplication
-    QApplication app(argc, argv);
-    QApplication::setApplicationName("Markd");
-    QApplication::setApplicationVersion("1.0.0");
-    QApplication::setOrganizationDomain("markd.org");
-    QApplication::setOrganizationName("Markd");
+    // Initialize MarkdApplication
+    MarkdApplication app(argc, argv);
 
     // Apply Master Obsidian Theme
     Theme::apply(app);
@@ -35,9 +31,8 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    // Launch standalone window
-    MainWindow window(options.hasFile ? options.filePath : QString());
-    window.show();
+    // Launch initial window via application registry
+    app.createWindow(options.hasFile ? options.filePath : QString());
 
     // Runs main event loop; guarantees clean process exit with zero background IPC daemons
     return app.exec();
