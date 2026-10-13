@@ -8,6 +8,32 @@ function initQWebChannel() {
             window.session = channel.objects.session;
             if (window.markdBridge) {
                 window.markdBridge.logMessage("QWebChannel connected to render.js");
+
+                // Downlink typed signal connections from C++ WebBridge
+                if (window.markdBridge.renderDocument && typeof window.markdBridge.renderDocument.connect === 'function') {
+                    window.markdBridge.renderDocument.connect(function(markdown, options) {
+                        if (typeof renderMarkdown === 'function') {
+                            renderMarkdown(markdown, options);
+                        }
+                    });
+                }
+                if (window.markdBridge.navigateToHeading && typeof window.markdBridge.navigateToHeading.connect === 'function') {
+                    window.markdBridge.navigateToHeading.connect(function(headingId) {
+                        if (typeof scrollToHeading === 'function') {
+                            scrollToHeading(headingId);
+                        }
+                    });
+                }
+                if (window.markdBridge.setTheme && typeof window.markdBridge.setTheme.connect === 'function') {
+                    window.markdBridge.setTheme.connect(function(themeName) {
+                        // Apply theme if supported
+                    });
+                }
+
+                // Two-way handshake: notify C++ that bridge is initialized and ready
+                if (typeof window.markdBridge.bridgeReady === 'function') {
+                    window.markdBridge.bridgeReady();
+                }
             }
             if (window.session) {
                 if (window.session.markdownChanged && typeof window.session.markdownChanged.connect === 'function') {
@@ -147,35 +173,17 @@ async function renderMarkdown(markdownText) {
     // 6. Wrap tables in expandable containers
     wrapTables();
 
-    // 7. Extract TOC
-    extractAndSendTOC();
-
-    // 8. Set up scroll spy
+    // 7. Set up scroll spy
     setupScrollSpy();
+
+    // 8. Notify C++ bridge of document render completion
+    var headings = contentEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]');
+    if (window.markdBridge && typeof window.markdBridge.onDocumentRendered === 'function') {
+        window.markdBridge.onDocumentRendered(headings.length);
+    }
 
     // Scroll to top for new document
     window.scrollTo(0, 0);
-}
-
-// ---- TOC extraction ----
-
-function extractAndSendTOC() {
-    var headings = document.querySelectorAll('#content h1[id], #content h2[id], #content h3[id], #content h4[id], #content h5[id], #content h6[id]');
-    var toc = [];
-    headings.forEach(function (h) {
-        toc.push({
-            id: h.id,
-            level: parseInt(h.tagName.charAt(1)),
-            text: h.textContent.trim()
-        });
-    });
-
-    if (window.session && typeof window.session.updateTOC === 'function') {
-        window.session.updateTOC(JSON.stringify(toc));
-    }
-    if (window.markdBridge && typeof window.markdBridge.updateTOC === 'function') {
-        window.markdBridge.updateTOC(JSON.stringify(toc));
-    }
 }
 
 // ---- Scroll spy ----
@@ -205,7 +213,9 @@ function setupScrollSpy() {
             if (window.session && typeof window.session.reportActiveHeading === 'function') {
                 window.session.reportActiveHeading(topHeading.id);
             }
-            if (window.markdBridge && typeof window.markdBridge.setActiveHeading === 'function') {
+            if (window.markdBridge && typeof window.markdBridge.onActiveHeadingChanged === 'function') {
+                window.markdBridge.onActiveHeadingChanged(topHeading.id);
+            } else if (window.markdBridge && typeof window.markdBridge.setActiveHeading === 'function') {
                 window.markdBridge.setActiveHeading(topHeading.id);
             }
         }
@@ -496,150 +506,6 @@ function openFullView(contentNode, isDiagram) {
     }
 }
 
-// ---- Find bar ----
-
-var findBarVisible = false;
-var findHighlights = [];
-var findCurrentIndex = -1;
-var findDebounceTimer = null;
-
-function showFindBar() {
-    if (findBarVisible) {
-        // Focus the input if already visible
-        var input = document.getElementById('markd-find-input');
-        if (input) { input.focus(); input.select(); }
-        return;
-    }
-    findBarVisible = true;
-
-    var bar = document.createElement('div');
-    bar.id = 'markd-find-bar';
-    bar.innerHTML =
-        '<input id="markd-find-input" type="text" placeholder="Find…" autocomplete="off" spellcheck="false">' +
-        '<span id="markd-find-count"></span>' +
-        '<button id="markd-find-prev" title="Previous">▲</button>' +
-        '<button id="markd-find-next" title="Next">▼</button>' +
-        '<button id="markd-find-close" title="Close">✕</button>';
-    document.body.appendChild(bar);
-
-    var input = document.getElementById('markd-find-input');
-    var countEl = document.getElementById('markd-find-count');
-
-    input.addEventListener('input', function () {
-        clearTimeout(findDebounceTimer);
-        findDebounceTimer = setTimeout(function () {
-            performFind(input.value, countEl);
-        }, 150);
-    });
-
-    input.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            if (e.shiftKey) findPrev(countEl);
-            else findNext(countEl);
-        }
-        if (e.key === 'Escape') closeFindBar();
-    });
-
-    document.getElementById('markd-find-next').addEventListener('click', function () { findNext(countEl); });
-    document.getElementById('markd-find-prev').addEventListener('click', function () { findPrev(countEl); });
-    document.getElementById('markd-find-close').addEventListener('click', closeFindBar);
-
-    input.focus();
-}
-
-function closeFindBar() {
-    if (findDebounceTimer) {
-        clearTimeout(findDebounceTimer);
-        findDebounceTimer = null;
-    }
-    findBarVisible = false;
-    var bar = document.getElementById('markd-find-bar');
-    if (bar) bar.remove();
-    clearHighlights();
-}
-
-function clearHighlights() {
-    findHighlights.forEach(function (el) {
-        var parent = el.parentNode;
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
-    });
-    findHighlights = [];
-    findCurrentIndex = -1;
-}
-
-function performFind(query, countEl) {
-    clearHighlights();
-    countEl = countEl || document.getElementById('markd-find-count');
-    if (!query) {
-        if (countEl) countEl.textContent = '';
-        return;
-    }
-
-    var content = document.getElementById('content');
-    var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
-    var textNodes = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-    var lowerQuery = query.toLowerCase();
-    textNodes.forEach(function (node) {
-        var text = node.textContent;
-        var lowerText = text.toLowerCase();
-        var idx = lowerText.indexOf(lowerQuery);
-        if (idx === -1) return;
-
-        var frag = document.createDocumentFragment();
-        var lastIdx = 0;
-        while (idx !== -1) {
-            frag.appendChild(document.createTextNode(text.substring(lastIdx, idx)));
-            var mark = document.createElement('mark');
-            mark.className = 'markd-find-highlight';
-            mark.textContent = text.substring(idx, idx + query.length);
-            frag.appendChild(mark);
-            findHighlights.push(mark);
-            lastIdx = idx + query.length;
-            idx = lowerText.indexOf(lowerQuery, lastIdx);
-        }
-        frag.appendChild(document.createTextNode(text.substring(lastIdx)));
-        node.parentNode.replaceChild(frag, node);
-    });
-
-    if (countEl) {
-        countEl.textContent = findHighlights.length + ' found';
-    }
-    if (findHighlights.length > 0) {
-        findCurrentIndex = 0;
-        highlightCurrent(countEl);
-    }
-}
-
-function findNext(countEl) {
-    countEl = countEl || document.getElementById('markd-find-count');
-    if (findHighlights.length === 0) return;
-    findCurrentIndex = (findCurrentIndex + 1) % findHighlights.length;
-    highlightCurrent(countEl);
-}
-
-function findPrev(countEl) {
-    countEl = countEl || document.getElementById('markd-find-count');
-    if (findHighlights.length === 0) return;
-    findCurrentIndex = (findCurrentIndex - 1 + findHighlights.length) % findHighlights.length;
-    highlightCurrent(countEl);
-}
-
-function highlightCurrent(countEl) {
-    countEl = countEl || document.getElementById('markd-find-count');
-    findHighlights.forEach(function (el, i) {
-        el.classList.toggle('markd-find-active', i === findCurrentIndex);
-    });
-    if (findHighlights[findCurrentIndex]) {
-        findHighlights[findCurrentIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    if (countEl) {
-        countEl.textContent = (findCurrentIndex + 1) + ' of ' + findHighlights.length;
-    }
-}
-
 // ---- Structured Engine API (window.Markd) ----
 
 window.Markd = {
@@ -647,24 +513,15 @@ window.Markd = {
     isReady: false,
     render: renderMarkdown,
     scrollToHeading: scrollToHeading,
-    find: {
-        show: showFindBar,
-        close: closeFindBar,
-        clear: clearHighlights,
-        search: performFind,
-        next: findNext,
-        prev: findPrev
-    },
     modal: {
         open: openFullView,
         close: closeFullView
     },
-    toc: {
-        extract: extractAndSendTOC,
-        update: extractAndSendTOC
-    },
     get bridge() {
         return window.markdBridge;
+    },
+    get session() {
+        return window.session;
     }
 };
 
@@ -673,14 +530,6 @@ window.renderMarkdown = renderMarkdown;
 window.scrollToHeading = scrollToHeading;
 window.openFullView = openFullView;
 window.closeFullView = closeFullView;
-window.showFindBar = showFindBar;
-window.closeFindBar = closeFindBar;
-window.clearHighlights = clearHighlights;
-window.performFind = performFind;
-window.findNext = findNext;
-window.findPrev = findPrev;
-window.highlightCurrent = highlightCurrent;
-window.extractAndSendTOC = extractAndSendTOC;
 window.setupScrollSpy = setupScrollSpy;
 window.wrapMermaidDiagrams = wrapMermaidDiagrams;
 window.wrapTables = wrapTables;

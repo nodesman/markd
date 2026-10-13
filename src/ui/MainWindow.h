@@ -41,8 +41,20 @@ public:
     void toggleSidebar();
     bool restoreSplitterState(const QByteArray& state);
 
+    // Native Chromium Search API
+    void findText(const QString& text, bool forward = true, bool caseSensitive = false);
+    void findNext();
+    void findPrevious();
+    void clearFind();
+
+    // Native Document Export & Print API
+    void printToPdf(const QString& filePath);
+    void exportHtml(const QString& filePath, const std::function<void(bool)>& callback = nullptr);
+    void copyHtmlToClipboard(const std::function<void(bool)>& callback = nullptr);
+
 signals:
     void sidebarToggled(bool collapsed);
+    void findResult(int activeMatch, int totalMatches);
 
 public slots:
     void updateToc();
@@ -54,6 +66,10 @@ private slots:
     void onOpen();
     void onSave();
     void onCloseWindow();
+    void onPrintPdf();
+    void onExportHtml();
+    void onCopyHtml();
+    void onFind();
     void onToggleWordWrap();
     void onZoomIn();
     void onZoomOut();
@@ -62,6 +78,7 @@ private slots:
     void onModeChanged(ModeSwitcher::DocumentMode mode);
     void onSplitterMoved(int pos, int index);
     void onHeadingActivated(const QString& id);
+    void onFindResult(int activeMatch, int totalMatches);
 
 private:
     void setupUI();

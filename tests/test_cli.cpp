@@ -862,13 +862,12 @@ void testTaskP1PreviewEditorialErgonomics(QApplication& app) {
     assert(js.contains("document.removeEventListener('mouseup', fvMouseUpHandler);"));
     assert(js.contains("fvApply(false);")); // Initial transform matrix initialization
 
-    // Task T2: Structured Engine API (window.Markd) & Memory Leak Mitigations
+    // Task T3: Structured Engine API (window.Markd) & Legacy DOM Search Purge
     assert(js.contains("window.Markd ="));
     assert(js.contains("activeFullViewClose"));
     assert(js.contains("closeFullView"));
-    assert(js.contains("countEl = countEl || document.getElementById('markd-find-count')"));
-    assert(js.contains("clearTimeout(findDebounceTimer)"));
-    assert(js.contains("findDebounceTimer = null;"));
+    assert(!js.contains("markd-find-bar"));
+    assert(!js.contains("extractAndSendTOC"));
 
     // --- Section 8: Converter Pipeline & JavaScript DOM Integration ---
     // In render.js: markdown-it language-mermaid block extraction and DOM wrapping
@@ -1566,6 +1565,189 @@ void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app) {
     std::cout << "PASS: William Zinsser Workspace Modularization tests passed!\n";
 }
 
+void testDomainSemanticActionProtocol(MarkdApplication& app) {
+    std::cout << "\n--- William Zinsser Suite: Domain Semantic Action Protocol ---\n";
+
+    // 1. WebBridge Domain Action Protocol
+    {
+        PreviewView previewView;
+        previewView.resize(800, 600);
+        previewView.show();
+        app.processEvents();
+
+        // it("buffers markdown content until bridgeReady handshake resolves");
+        assert(!previewView.isBridgeReady());
+        previewView.setMarkdown("# Buffered Content Before Ready");
+        assert(previewView.pendingMarkdown() == "# Buffered Content Before Ready");
+
+        // Wait for page ready and bridgeReady handshake
+        RenderJsTest::waitForPageReady(previewView);
+        assert(previewView.isBridgeReady());
+        assert(previewView.pendingMarkdown().isEmpty());
+
+        // it("dispatches renderDocument signal with typed JSON payload");
+        QSignalSpy renderSpy(previewView.bridge(), &WebBridge::renderDocument);
+        QSignalSpy docRenderedSpy(&previewView, &PreviewView::documentRendered);
+        previewView.setMarkdown("# Rendered Via Typed Signal\n\nParagraph text.");
+
+        assert(renderSpy.count() >= 1);
+        assert(renderSpy.last().at(0).toString().contains("Rendered Via Typed Signal"));
+        assert(renderSpy.last().at(1).canConvert<QJsonObject>());
+
+        for (int i = 0; i < 15 && docRenderedSpy.count() < 1; ++i) {
+            QTest::qWait(25);
+        }
+        assert(docRenderedSpy.count() >= 1);
+        assert(docRenderedSpy.last().at(0).toInt() == 1);
+
+        // it("dispatches navigateToHeading signal without string interpolation");
+        QSignalSpy navSpy(previewView.bridge(), &WebBridge::navigateToHeading);
+        previewView.scrollToHeading("rendered-via-typed-signal");
+        assert(navSpy.count() >= 1);
+        assert(navSpy.last().at(0).toString() == "rendered-via-typed-signal");
+
+        // it("forwards activeHeadingChanged signals from web runtime to TOC sidebar");
+        MainWindow win;
+        win.resize(1000, 650);
+        win.show();
+        app.processEvents();
+
+        win.editor()->setPlainText("# Heading One\n\n## Heading Two\n");
+        win.updateToc();
+        assert(win.tocWidget()->headingCount() == 2);
+
+        // Emit activeHeadingChanged from previewView bridge
+        emit win.previewView()->activeHeadingChanged("heading-two");
+        app.processEvents();
+        assert(win.tocWidget()->activeHeadingId() == "heading-two");
+
+        std::cout << "PASS: WebBridge Domain Action Protocol tests passed!\n";
+    }
+
+    // 2. Native Chromium Search Engine
+    {
+        MainWindow win;
+        win.resize(900, 650);
+        win.show();
+        app.processEvents();
+
+        win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Preview);
+        app.processEvents();
+        RenderJsTest::waitForPageReady(*win.previewView());
+
+        win.previewView()->setMarkdown(
+            "# Search Monograph\n\n"
+            "Chromium native hardware-accelerated search engine.\n"
+            "First instance of keyword search.\n"
+            "Second instance of keyword search.\n"
+        );
+        for (int i = 0; i < 10; ++i) {
+            QTest::qWait(25);
+        }
+
+        // it("dispatches search queries to Chromium compositor via findText");
+        QSignalSpy findSpy(&win, &MainWindow::findResult);
+        win.findText("search", true, false);
+
+        for (int i = 0; i < 20 && findSpy.count() < 1; ++i) {
+            QTest::qWait(50);
+        }
+
+        // it("reports active match index and total match count to C++ callback");
+        assert(findSpy.count() >= 1);
+        int active = findSpy.last().at(0).toInt();
+        int total = findSpy.last().at(1).toInt();
+        assert(total >= 3);
+        assert(active >= 1);
+
+        // it("clears search highlights natively without DOM tree mutations");
+        win.clearFind();
+        assert(findSpy.count() >= 2);
+        assert(findSpy.last().at(0).toInt() == 0);
+        assert(findSpy.last().at(1).toInt() == 0);
+
+        std::cout << "PASS: Native Chromium Search Engine tests passed!\n";
+    }
+
+    // 3. Unified Desktop Zoom Engine
+    {
+        MainWindow win;
+        win.resize(900, 650);
+        win.show();
+        app.processEvents();
+
+        // it("applies zoom factor directly to WebEngine view");
+        win.previewView()->setZoomFactor(1.5);
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.5) < 0.01);
+
+        // it("maintains zoom factor parity between editor and preview viewports");
+        win.session()->setZoomFactor(1.5);
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.5) < 0.01);
+        assert(std::abs(win.editor()->font().pointSizeF() - (13.0 * 1.5)) < 0.01);
+
+        win.session()->resetZoom();
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.0) < 0.01);
+        assert(std::abs(win.editor()->font().pointSizeF() - 13.0) < 0.01);
+
+        // it("clamps zoom factor strictly between 0.25x and 3.0x");
+        win.previewView()->setZoomFactor(0.1); // below minimum
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 0.25) < 0.01);
+
+        win.previewView()->setZoomFactor(5.0); // above maximum
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 3.0) < 0.01);
+
+        win.previewView()->setZoomFactor(1.0);
+        assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.0) < 0.01);
+
+        std::cout << "PASS: Unified Desktop Zoom Engine tests passed!\n";
+    }
+
+    // 4. Native Document Export & Print
+    {
+        MainWindow win;
+        win.resize(900, 650);
+        win.show();
+        app.processEvents();
+        RenderJsTest::waitForPageReady(*win.previewView());
+
+        win.previewView()->setMarkdown("# Export Brief\n\nExport verification.");
+        for (int i = 0; i < 8; ++i) {
+            QTest::qWait(25);
+        }
+
+        // it("serializes full document HTML via native toHtml callback");
+        bool htmlExported = false;
+        QString htmlPath = QDir::tempPath() + QString("/markd_export_%1.html").arg(QDateTime::currentMSecsSinceEpoch());
+        win.exportHtml(htmlPath, [&](bool ok) {
+            htmlExported = ok;
+        });
+
+        for (int i = 0; i < 20 && !htmlExported; ++i) {
+            QTest::qWait(50);
+        }
+        assert(htmlExported);
+        assert(QFile::exists(htmlPath));
+        QFile hf(htmlPath);
+        assert(hf.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString htmlContent = QString::fromUtf8(hf.readAll());
+        hf.close();
+        QFile::remove(htmlPath);
+        assert(htmlContent.contains("<html"));
+        assert(htmlContent.contains("Export Brief"));
+
+        // it("renders document directly to PDF via native printToPdf");
+        QString pdfPath = QDir::tempPath() + QString("/markd_print_%1.pdf").arg(QDateTime::currentMSecsSinceEpoch());
+        win.printToPdf(pdfPath);
+        for (int i = 0; i < 15; ++i) {
+            QTest::qWait(50);
+        }
+        QTest::qWait(200);
+        assert(!pdfPath.isEmpty());
+
+        std::cout << "PASS: Native Document Export & Print tests passed!\n";
+    }
+}
+
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -1587,6 +1769,7 @@ int main(int argc, char* argv[]) {
     testMainWindowSessionObserver(app);
     testNativeChromiumModernization(app);
     testWorkspaceModularizationAndEngineHierarchy(app);
+    testDomainSemanticActionProtocol(app);
     testRenderJsEngine(app);
 
     return 0;

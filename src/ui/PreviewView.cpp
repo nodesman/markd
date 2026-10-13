@@ -35,8 +35,19 @@ PreviewView::PreviewView(QWidget* parent)
     m_channel->registerObject(QStringLiteral("session"), m_session);
     m_webView->page()->setWebChannel(m_channel);
 
+    connect(m_bridge, &WebBridge::bridgeInitialized, this, [this]() {
+        m_bridgeReady = true;
+        emit bridgeInitialized();
+        if (!m_pendingMarkdown.isEmpty()) {
+            QString md = m_pendingMarkdown;
+            m_pendingMarkdown.clear();
+            setMarkdown(md);
+        }
+    });
+
     connect(m_bridge, &WebBridge::tocUpdated, this, &PreviewView::tocUpdated);
     connect(m_bridge, &WebBridge::activeHeadingChanged, this, &PreviewView::activeHeadingChanged);
+    connect(m_bridge, &WebBridge::documentRendered, this, &PreviewView::documentRendered);
 
     connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
     connect(m_session, &DocumentSession::activeHeadingChanged, this, &PreviewView::activeHeadingChanged);
@@ -48,9 +59,8 @@ PreviewView::PreviewView(QWidget* parent)
 
     connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
         m_pageLoaded = ok;
-        if (ok && !m_pendingMarkdown.isEmpty()) {
-            setMarkdown(m_pendingMarkdown);
-            m_pendingMarkdown.clear();
+        if (!ok) {
+            m_bridgeReady = false;
         }
     });
 
@@ -61,6 +71,8 @@ PreviewView::PreviewView(QWidget* parent)
 
 void PreviewView::loadTemplate()
 {
+    m_bridgeReady = false;
+    m_pageLoaded = false;
     m_webView->setUrl(QUrl("qrc:/web/template.html"));
 }
 
@@ -84,43 +96,27 @@ void PreviewView::setMarkdown(const QString& markdown)
         m_session->setMarkdown(markdown);
     }
 
-    if (!m_pageLoaded) {
+    if (!m_bridgeReady) {
         m_pendingMarkdown = markdown;
         return;
     }
 
-    // Call JavaScript render markdown via structured window.Markd or legacy fallback with promise trap
-    QString jsonString = QString::fromUtf8(QJsonDocument(QJsonArray{markdown}).toJson(QJsonDocument::Compact));
-    QString js = QString(
-        "(function(text) {"
-        "    var p = (window.Markd && typeof window.Markd.render === 'function')"
-        "        ? window.Markd.render(text)"
-        "        : (typeof renderMarkdown === 'function' ? renderMarkdown(text) : Promise.resolve());"
-        "    if (p && typeof p.catch === 'function') {"
-        "        p.catch(function(err) { console.error('Markd render error:', err); });"
-        "    }"
-        "})(%1[0]);"
-    ).arg(jsonString);
-    m_webView->page()->runJavaScript(js);
+    // Pure typed domain semantic action dispatch (zero DOM leakage, zero runJavaScript)
+    emit m_bridge->renderDocument(markdown, QJsonObject());
 }
 
 void PreviewView::scrollToHeading(const QString& id)
 {
-    QString jsonId = QString::fromUtf8(QJsonDocument(QJsonArray{id}).toJson(QJsonDocument::Compact));
-    QString js = QString(
-        "if (window.Markd && typeof window.Markd.scrollToHeading === 'function') { "
-        "    window.Markd.scrollToHeading(%1[0]); "
-        "} else if (typeof scrollToHeading === 'function') { "
-        "    scrollToHeading(%1[0]); "
-        "}"
-    ).arg(jsonId);
-    m_webView->page()->runJavaScript(js);
+    if (m_bridgeReady) {
+        emit m_bridge->navigateToHeading(id);
+    }
 }
 
 void PreviewView::setZoomFactor(qreal factor)
 {
     if (m_webView) {
-        m_webView->setZoomFactor(factor);
+        qreal clamped = std::clamp(factor, 0.25, 3.0);
+        m_webView->setZoomFactor(clamped);
     }
 }
 

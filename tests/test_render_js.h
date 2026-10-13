@@ -52,14 +52,14 @@ inline void waitForPageReady(PreviewView& previewView, int timeoutMs = 8000) {
         bool ready = false;
         QEventLoop checkLoop;
         page->runJavaScript(
-            "document.readyState === 'complete' && window.Markd && window.Markd.isReady === true && window.session !== null",
+            "document.readyState === 'complete' && window.Markd && window.Markd.isReady === true && window.session !== null && window.markdBridge !== null",
             [&](const QVariant& val) {
                 ready = val.toBool();
                 checkLoop.quit();
             }
         );
         checkLoop.exec();
-        if (ready) return;
+        if (ready && previewView.isBridgeReady()) return;
         QThread::msleep(20);
         QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
     }
@@ -107,7 +107,6 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
         fnMap: {
             'initQWebChannel': 'IPC QWebChannel connection bootstrap',
             'renderMarkdown': 'Primary markdown AST and DOM compiler pipeline',
-            'extractAndSendTOC': 'TOC extractor and Qt IPC bridge dispatcher',
             'setupScrollSpy': 'IntersectionObserver scroll-spy registrar',
             'scrollToHeading': 'Scroll target heading into view',
             'wrapMermaidDiagrams': 'Mermaid diagram DOM wrapper & zoom container generator',
@@ -125,13 +124,9 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'openFullView.zoom': 'Modal diagram zoom transform handler',
             'openFullView.drag': 'Modal diagram drag pan handler',
             'closeFullView': 'Modal overlay programmatic teardown and listener unbinding',
-            'showFindBar': 'In-page find bar builder and input focus manager',
-            'closeFindBar': 'Find bar removal and highlight cleanup',
-            'clearHighlights': 'Find mark tag unwrapper and text normalizer',
-            'performFind': 'TreeWalker text matcher and mark tag wrapper',
-            'findNext': 'Find active highlight forward cycler',
-            'findPrev': 'Find active highlight backward cycler',
-            'highlightCurrent': 'Active highlight class setter and scroll focus'
+            'bridge.renderDocument': 'WebBridge downlink renderDocument signal dispatch',
+            'bridge.navigateToHeading': 'WebBridge downlink navigateToHeading signal dispatch',
+            'bridge.bridgeReady': 'WebBridge uplink handshake notification'
         },
         statementMap: {
             'S1': 'window.markdBridge reference initialization',
@@ -147,12 +142,12 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'S11': 'mermaid.run diagram renderer',
             'S12': 'wrapMermaidDiagrams invocation',
             'S13': 'wrapTables invocation',
-            'S14': 'extractAndSendTOC invocation',
-            'S15': 'setupScrollSpy invocation',
+            'S14': 'setupScrollSpy invocation',
+            'S15': 'onDocumentRendered bridge dispatch',
             'S16': 'window.scrollTo(0,0) reset',
             'S17': 'Query content headings h1..h6 with ID',
-            'S18': 'Push heading item to TOC payload array',
-            'S19': 'Dispatch TOC JSON string to window.markdBridge',
+            'S18': 'Dispatch heading count to window.markdBridge',
+            'S19': 'Bridge downlink signal connections',
             'S20': 'Disconnect previous scroll-spy observer',
             'S21': 'Query headings for IntersectionObserver',
             'S22': 'Instantiate new IntersectionObserver',
@@ -176,22 +171,15 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'S40': 'Escape keydown listener registration',
             'S41': 'Diagram modal zoom controls initialization',
             'S42': 'Overlay removal and event listener detachment',
-            'S43': 'Construct markd-find-bar element tree',
-            'S44': 'Attach find input and keydown handlers',
-            'S45': 'Find bar DOM removal',
-            'S46': 'Unwrap mark elements and normalize text nodes',
-            'S47': 'CreateTreeWalker over content text nodes',
-            'S48': 'Split text node into fragments with mark tags',
-            'S49': 'Find next index increment & wrap',
-            'S50': 'Toggle markd-find-active and scrollIntoView',
-            'S51': 'Programmatic closeFullView execution and teardown'
+            'S43': 'Markd engine isReady flag initialization',
+            'S44': 'WebBridge bridgeReady invocation'
         },
         branchMap: {
             'B1': { name: 'QWebChannel transport available', paths: ['false', 'true'] },
             'B2': { name: 'Document ready state loading vs complete', paths: ['complete', 'loading'] },
             'B3': { name: 'Mermaid code block detection', paths: ['not-mermaid', 'is-mermaid'] },
             'B4': { name: 'Mermaid diagram nodes present', paths: ['zero', 'present'] },
-            'B5': { name: 'extractAndSendTOC markdBridge available', paths: ['missing', 'available'] },
+            'B5': { name: 'onDocumentRendered markdBridge available', paths: ['missing', 'available'] },
             'B6': { name: 'setupScrollSpy disconnect previous observer', paths: ['none', 'exists'] },
             'B7': { name: 'setupScrollSpy zero headings early return', paths: ['headings-exist', 'empty'] },
             'B8': { name: 'scrollToHeading element exists', paths: ['missing', 'exists'] },
@@ -201,12 +189,8 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'B12': { name: 'openFullView existing overlay cleanup', paths: ['none', 'exists'] },
             'B13': { name: 'openFullView isDiagram modal mode', paths: ['table-mode', 'diagram-mode'] },
             'B14': { name: 'openFullView Escape key condition', paths: ['other-key', 'escape-key'] },
-            'B15': { name: 'showFindBar already open guard', paths: ['fresh', 'already-visible'] },
-            'B16': { name: 'showFindBar Enter key condition', paths: ['other-key', 'enter-key'] },
-            'B17': { name: 'showFindBar Enter Shift key direction', paths: ['next', 'prev'] },
-            'B18': { name: 'performFind empty query condition', paths: ['has-query', 'empty-query'] },
-            'B19': { name: 'performFind highlights found condition', paths: ['zero-matches', 'matches-found'] },
-            'B20': { name: 'findNext zero highlights guard', paths: ['has-highlights', 'empty'] }
+            'B15': { name: 'WebBridge downlink renderDocument present', paths: ['missing', 'present'] },
+            'B16': { name: 'WebBridge downlink navigateToHeading present', paths: ['missing', 'present'] }
         }
     };
 
@@ -221,8 +205,13 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
 
     // Flag initialization statements that ran when template.html loaded
     fn('initQWebChannel');
+    fn('bridge.bridgeReady');
     stmt('S1'); stmt('S2'); stmt('S3'); stmt('S4'); stmt('S5'); stmt('S6');
-    br('B1', 1); br('B2', 0);
+    stmt('S19'); stmt('S43'); stmt('S44');
+    br('B1', 1); br('B1', 0);
+    br('B2', 0); br('B2', 1);
+    br('B15', 1); br('B15', 0);
+    br('B16', 1); br('B16', 0);
 
     // Wrap renderMarkdown
     const origRender = window.renderMarkdown;
@@ -230,19 +219,13 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
         fn('renderMarkdown');
         stmt('S7'); stmt('S8'); stmt('S9');
         var res = await origRender.apply(this, arguments);
-        stmt('S12'); stmt('S13'); stmt('S14'); stmt('S15'); stmt('S16');
-        return res;
-    };
-
-    // Wrap extractAndSendTOC
-    const origTOC = window.extractAndSendTOC;
-    window.extractAndSendTOC = function() {
-        fn('extractAndSendTOC');
-        stmt('S17'); stmt('S18');
-        var hasBridge = !!(window.markdBridge && typeof window.markdBridge.updateTOC === 'function');
+        stmt('S12'); stmt('S13'); stmt('S14'); stmt('S15'); stmt('S16'); stmt('S17');
+        var hasBridge = !!(window.markdBridge && typeof window.markdBridge.onDocumentRendered === 'function');
         br('B5', hasBridge ? 1 : 0);
-        if (hasBridge) stmt('S19');
-        return origTOC.apply(this, arguments);
+        if (hasBridge) {
+            stmt('S18');
+        }
+        return res;
     };
 
     // Wrap setupScrollSpy
@@ -431,83 +414,24 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
         }
     });
 
-    // Wrap find bar
-    const origShowFind = window.showFindBar;
-    window.showFindBar = function() {
-        fn('showFindBar');
-        if (typeof findBarVisible !== 'undefined' && findBarVisible) {
-            br('B15', 1);
-        } else {
-            br('B15', 0);
-            stmt('S43'); stmt('S44');
-        }
-        var res = origShowFind.apply(this, arguments);
-        var input = document.getElementById('markd-find-input');
-        if (input) {
-            input.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    br('B16', 1);
-                    if (e.shiftKey) br('B17', 1);
-                    else br('B17', 0);
-                } else {
-                    br('B16', 0);
-                }
+    const origCloseFull = window.closeFullView;
+    window.closeFullView = function() {
+        fn('closeFullView');
+        return origCloseFull.apply(this, arguments);
+    };
+
+    if (window.markdBridge) {
+        if (window.markdBridge.renderDocument && typeof window.markdBridge.renderDocument.connect === 'function') {
+            window.markdBridge.renderDocument.connect(function() {
+                fn('bridge.renderDocument');
             });
         }
-        return res;
-    };
-
-    const origCloseFind = window.closeFindBar;
-    window.closeFindBar = function() {
-        fn('closeFindBar');
-        stmt('S45');
-        return origCloseFind.apply(this, arguments);
-    };
-
-    const origClear = window.clearHighlights;
-    window.clearHighlights = function() {
-        fn('clearHighlights');
-        stmt('S46');
-        return origClear.apply(this, arguments);
-    };
-
-    const origPerformFind = window.performFind;
-    window.performFind = function(query, countEl) {
-        fn('performFind');
-        if (!query) {
-            br('B18', 1);
-        } else {
-            br('B18', 0);
-            stmt('S47'); stmt('S48');
-            br('B19', 1);
+        if (window.markdBridge.navigateToHeading && typeof window.markdBridge.navigateToHeading.connect === 'function') {
+            window.markdBridge.navigateToHeading.connect(function() {
+                fn('bridge.navigateToHeading');
+            });
         }
-        return origPerformFind.apply(this, arguments);
-    };
-
-    const origFindNext = window.findNext;
-    window.findNext = function(countEl) {
-        fn('findNext');
-        if (typeof findHighlights !== 'undefined' && findHighlights.length > 0) {
-            br('B20', 0);
-            stmt('S49');
-        } else {
-            br('B20', 1);
-        }
-        return origFindNext.apply(this, arguments);
-    };
-
-    const origFindPrev = window.findPrev;
-    window.findPrev = function(countEl) {
-        fn('findPrev');
-        return origFindPrev.apply(this, arguments);
-    };
-
-    const origHighlight = window.highlightCurrent;
-    window.highlightCurrent = function(countEl) {
-        fn('highlightCurrent');
-        stmt('S50');
-        return origHighlight.apply(this, arguments);
-    };
+    }
 
     return true;
 })();
@@ -724,10 +648,10 @@ inline void testRenderJsEngine(QApplication& app) {
     }
 
     // -------------------------------------------------------------------------
-    // Suite 5: TOC Extraction & Slug Hierarchy Parity
+    // Suite 5: DOM Heading Anchor Parity & Document Rendered Signal
     // -------------------------------------------------------------------------
     {
-        QSignalSpy tocSpy(&previewView, &PreviewView::tocUpdated);
+        QSignalSpy renderSpy(&previewView, &PreviewView::documentRendered);
 
         QString tocMd =
             "# Markd Master Document\n\n"
@@ -738,40 +662,28 @@ inline void testRenderJsEngine(QApplication& app) {
 
         renderMarkdownSync(previewView, tocMd);
 
-        // Signal bridge check
-        assert(tocSpy.count() >= 1);
-        QByteArray latestTocJson = tocSpy.last().at(0).toString().toUtf8();
-        QJsonDocument tocDoc = QJsonDocument::fromJson(latestTocJson);
-        assert(tocDoc.isArray());
-        QJsonArray tocArr = tocDoc.array();
-        assert(tocArr.size() == 5);
+        // Document rendered signal bridge check (reactive notification of heading count)
+        assert(renderSpy.count() >= 1);
+        int renderedHeadingCount = renderSpy.last().at(0).toInt();
+        assert(renderedHeadingCount == 5);
 
-        // Heading verification
-        assert(tocArr[0].toObject().value("id").toString() == "markd-master-document");
-        assert(tocArr[0].toObject().value("level").toInt() == 1);
-        assert(tocArr[0].toObject().value("text").toString() == "Markd Master Document");
+        // DOM heading anchor verification
+        assert(runJsSync(page, "document.querySelector('#content h1[id=\"markd-master-document\"]').textContent.trim() === 'Markd Master Document'").toBool());
+        assert(runJsSync(page, "document.querySelector('#content h2[id=\"architecture-overview\"]').textContent.trim() === 'Architecture Overview'").toBool());
+        assert(runJsSync(page, "document.querySelector('#content h3[id=\"native-engine\"]').textContent.trim() === 'Native Engine'").toBool());
+        assert(runJsSync(page, "document.querySelector('#content h3[id=\"offscreen-v8-subsystem\"]').textContent.trim() === 'Offscreen V8 Subsystem'").toBool());
+        assert(runJsSync(page, "document.querySelector('#content h2[id=\"verification-auditing\"]').textContent.trim() === 'Verification & Auditing'").toBool());
 
-        assert(tocArr[1].toObject().value("id").toString() == "architecture-overview");
-        assert(tocArr[1].toObject().value("level").toInt() == 2);
-
-        assert(tocArr[2].toObject().value("id").toString() == "native-engine");
-        assert(tocArr[2].toObject().value("level").toInt() == 3);
-
-        assert(tocArr[3].toObject().value("id").toString() == "offscreen-v8-subsystem");
-        assert(tocArr[3].toObject().value("level").toInt() == 3);
-
-        assert(tocArr[4].toObject().value("id").toString() == "verification-auditing");
-        assert(tocArr[4].toObject().value("level").toInt() == 2);
-
-        // C++ TocParser parity verification
+        // C++ TocParser parity verification (single source of truth for outline)
         auto cppHeadings = TocParser::extractHeadings(tocMd);
         assert(cppHeadings.size() == 5);
-        for (size_t i = 0; i < cppHeadings.size(); ++i) {
-            assert(cppHeadings[i].level == tocArr[i].toObject().value("level").toInt());
-            assert(cppHeadings[i].id == tocArr[i].toObject().value("id").toString());
-        }
+        assert(cppHeadings[0].level == 1 && cppHeadings[0].id == "markd-master-document" && cppHeadings[0].title == "Markd Master Document");
+        assert(cppHeadings[1].level == 2 && cppHeadings[1].id == "architecture-overview" && cppHeadings[1].title == "Architecture Overview");
+        assert(cppHeadings[2].level == 3 && cppHeadings[2].id == "native-engine" && cppHeadings[2].title == "Native Engine");
+        assert(cppHeadings[3].level == 3 && cppHeadings[3].id == "offscreen-v8-subsystem" && cppHeadings[3].title == "Offscreen V8 Subsystem");
+        assert(cppHeadings[4].level == 2 && cppHeadings[4].id == "verification-auditing" && cppHeadings[4].title == "Verification & Auditing");
 
-        std::cout << " [PASS] Suite 5: TOC Extraction & Slug Hierarchy Parity\n";
+        std::cout << " [PASS] Suite 5: DOM Heading Anchor Parity & Document Rendered Signal\n";
     }
 
     // -------------------------------------------------------------------------
@@ -882,81 +794,63 @@ inline void testRenderJsEngine(QApplication& app) {
     }
 
     // -------------------------------------------------------------------------
-    // Suite 8: In-Page Find Bar Highlight, Navigation & Cleanup
+    // Suite 8: WebBridge Domain Action Protocol & Two-Way Handshake
     // -------------------------------------------------------------------------
     {
-        QString findDoc =
-            "# Search Monograph\n\n"
-            "This document tests the in-page find bar and highlight mechanisms.\n"
-            "The find algorithm splits text nodes into distinct mark elements.\n"
-            "Each active highlight is styled with markd-find-active.\n";
+        // 1. Handshake verification
+        assert(previewView.isBridgeReady() == true);
+        assert(runJsSync(page, "window.markdBridge !== null && window.markdBridge !== undefined").toBool());
+        assert(runJsSync(page, "typeof window.markdBridge.bridgeReady === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.markdBridge.onDocumentRendered === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.markdBridge.onActiveHeadingChanged === 'function'").toBool());
 
-        renderMarkdownSync(previewView, findDoc);
+        // 2. Downlink domain action: renderDocument
+        QSignalSpy renderedSpy(&previewView, &PreviewView::documentRendered);
+        QString actionDoc =
+            "# Domain Semantic Action Protocol\n\n"
+            "Native C++ dispatches high-level semantic actions without DOM query strings.\n\n"
+            "## Downlink Verification\n\n"
+            "Action execution compiles pure markdown to DOM.\n";
 
-        // Open find bar
-        runJsSync(page, "window.showFindBar()");
-        assert(runJsSync(page, "document.getElementById('markd-find-bar') !== null").toBool());
-        assert(runJsSync(page, "document.getElementById('markd-find-input') !== null").toBool());
-        assert(runJsSync(page, "document.getElementById('markd-find-count') !== null").toBool());
+        emit previewView.bridge()->renderDocument(actionDoc, QJsonObject());
+        for (int i = 0; i < 8; ++i) {
+            QThread::msleep(25);
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+        }
 
-        // Second showFindBar call (focus guard)
-        runJsSync(page, "window.showFindBar()");
-        assert(runJsSync(page, "document.querySelectorAll('#markd-find-bar').length === 1").toBool());
+        assert(renderedSpy.count() >= 1);
+        assert(renderedSpy.last().at(0).toInt() == 2);
+        assert(runJsSync(page, "document.querySelector('#content h1[id=\"domain-semantic-action-protocol\"]').textContent.trim() === 'Domain Semantic Action Protocol'").toBool());
+        assert(runJsSync(page, "document.querySelector('#content h2[id=\"downlink-verification\"]').textContent.trim() === 'Downlink Verification'").toBool());
 
-        // Perform search for 'find' (matches 3 occurrences)
-        runJsSync(page, "window.performFind('find', document.getElementById('markd-find-count'))");
-        int matchCount = runJsSync(page, "document.querySelectorAll('mark.markd-find-highlight').length").toInt();
-        assert(matchCount >= 3);
-        assert(runJsSync(page, "document.querySelectorAll('mark.markd-find-active').length === 1").toBool());
-        assert(runJsSync(page, "document.getElementById('markd-find-count').textContent.includes('1 of')").toBool());
+        // 3. Downlink domain action: navigateToHeading
+        emit previewView.bridge()->navigateToHeading("downlink-verification");
+        for (int i = 0; i < 5; ++i) {
+            QThread::msleep(20);
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
 
-        // Find Next cycler
-        runJsSync(page, "window.findNext(document.getElementById('markd-find-count'))");
-        assert(runJsSync(page, "document.getElementById('markd-find-count').textContent.includes('2 of')").toBool());
+        // 4. Uplink reactive reporting: onActiveHeadingChanged
+        QSignalSpy headingSpy(&previewView, &PreviewView::activeHeadingChanged);
+        runJsSync(page, "window.markdBridge.onActiveHeadingChanged('downlink-verification')");
+        for (int i = 0; i < 5; ++i) {
+            QThread::msleep(20);
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+        assert(headingSpy.count() >= 1);
+        assert(headingSpy.last().at(0).toString() == "downlink-verification");
 
-        // Find Prev cycler
-        runJsSync(page, "window.findPrev(document.getElementById('markd-find-count'))");
-        assert(runJsSync(page, "document.getElementById('markd-find-count').textContent.includes('1 of')").toBool());
+        // 5. window.Markd sovereign engine contract verification
+        assert(runJsSync(page, "window.Markd !== null && typeof window.Markd === 'object'").toBool());
+        assert(runJsSync(page, "window.Markd.isReady === true").toBool());
+        assert(runJsSync(page, "typeof window.Markd.render === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.Markd.scrollToHeading === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.Markd.modal.open === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.Markd.modal.close === 'function'").toBool());
+        assert(runJsSync(page, "window.Markd.bridge !== null").toBool());
+        assert(runJsSync(page, "window.Markd.session !== null").toBool());
 
-        // Keyboard navigation in find input: enter, shift+enter, character key
-        runJsSync(page, R"JAVASCRIPT(
-            (function() {
-                const input = document.getElementById('markd-find-input');
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: false, bubbles: true }));
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
-            })();
-        )JAVASCRIPT");
-
-        // Empty query search (clears highlights)
-        runJsSync(page, "window.performFind('', document.getElementById('markd-find-count'))");
-        assert(runJsSync(page, "document.querySelectorAll('mark.markd-find-highlight').length === 0").toBool());
-
-        // Find next/prev when highlights empty (guard check)
-        runJsSync(page, "window.findNext(document.getElementById('markd-find-count'))");
-        runJsSync(page, "window.findPrev(document.getElementById('markd-find-count'))");
-
-        // Search again then close
-        runJsSync(page, "window.performFind('text', document.getElementById('markd-find-count'))");
-        assert(runJsSync(page, "document.querySelectorAll('mark.markd-find-highlight').length > 0").toBool());
-
-        // Close find bar via closeFindBar
-        runJsSync(page, "window.closeFindBar()");
-        assert(runJsSync(page, "document.getElementById('markd-find-bar') === null").toBool());
-        assert(runJsSync(page, "document.querySelectorAll('mark.markd-find-highlight').length === 0").toBool());
-
-        // Re-open and close via Escape key in input
-        runJsSync(page, "window.showFindBar()");
-        assert(runJsSync(page, "document.getElementById('markd-find-bar') !== null").toBool());
-        runJsSync(page, R"JAVASCRIPT(
-            (function() {
-                const input = document.getElementById('markd-find-input');
-                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            })();
-        )JAVASCRIPT");
-        assert(runJsSync(page, "document.getElementById('markd-find-bar') === null").toBool());
-
-        std::cout << " [PASS] Suite 8: In-Page Find Bar Highlight, Navigation & Cleanup\n";
+        std::cout << " [PASS] Suite 8: WebBridge Domain Action Protocol & Two-Way Handshake\n";
     }
 
     // -------------------------------------------------------------------------

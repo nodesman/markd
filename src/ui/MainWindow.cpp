@@ -6,6 +6,9 @@
 #include <QMessageBox>
 #include <QFont>
 #include <QTextBlock>
+#include <QClipboard>
+#include <QMimeData>
+#include <QApplication>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
@@ -92,6 +95,7 @@ void MainWindow::setupUI()
     // Connect TOC jump and scroll-spy
     connect(m_tocWidget, &TocWidget::headingActivated, this, &MainWindow::onHeadingActivated);
     connect(m_previewView, &PreviewView::activeHeadingChanged, m_tocWidget, &TocWidget::setActiveHeading);
+    connect(m_previewView, &PreviewView::findResult, this, &MainWindow::onFindResult);
 
     // Initialize Headless DocumentSession Single Source of Truth
     m_session = new DocumentSession(this);
@@ -157,6 +161,12 @@ void MainWindow::setupUI()
     if (m_actions.saveAction) {
         connect(m_actions.saveAction, &QAction::triggered, this, &MainWindow::onSave);
     }
+    if (m_actions.exportHtmlAction) {
+        connect(m_actions.exportHtmlAction, &QAction::triggered, this, &MainWindow::onExportHtml);
+    }
+    if (m_actions.printPdfAction) {
+        connect(m_actions.printPdfAction, &QAction::triggered, this, &MainWindow::onPrintPdf);
+    }
     if (m_actions.closeWindowAction) {
         connect(m_actions.closeWindowAction, &QAction::triggered, this, &MainWindow::onCloseWindow);
     }
@@ -174,11 +184,17 @@ void MainWindow::setupUI()
     if (m_actions.copyAction) {
         connect(m_actions.copyAction, &QAction::triggered, m_editor, &QPlainTextEdit::copy);
     }
+    if (m_actions.copyHtmlAction) {
+        connect(m_actions.copyHtmlAction, &QAction::triggered, this, &MainWindow::onCopyHtml);
+    }
     if (m_actions.pasteAction) {
         connect(m_actions.pasteAction, &QAction::triggered, m_editor, &QPlainTextEdit::paste);
     }
     if (m_actions.selectAllAction) {
         connect(m_actions.selectAllAction, &QAction::triggered, m_editor, &QPlainTextEdit::selectAll);
+    }
+    if (m_actions.findAction) {
+        connect(m_actions.findAction, &QAction::triggered, this, &MainWindow::onFind);
     }
 
     // Connect View Actions
@@ -443,4 +459,134 @@ void MainWindow::changeEvent(QEvent* event)
             m_headerBar->updateMargins();
         }
     }
+}
+
+void MainWindow::onFindResult(int activeMatch, int totalMatches)
+{
+    emit findResult(activeMatch, totalMatches);
+}
+
+void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
+{
+    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
+        if (m_previewView) {
+            m_previewView->findText(text, forward, caseSensitive);
+        }
+    } else {
+        if (m_editor) {
+            QTextDocument::FindFlags flags;
+            if (!forward) flags |= QTextDocument::FindBackward;
+            if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
+            bool found = m_editor->find(text, flags);
+            emit findResult(found ? 1 : 0, found ? 1 : 0);
+        }
+    }
+}
+
+void MainWindow::findNext()
+{
+    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
+        if (m_previewView) m_previewView->findNext();
+    }
+}
+
+void MainWindow::findPrevious()
+{
+    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
+        if (m_previewView) m_previewView->findPrevious();
+    }
+}
+
+void MainWindow::clearFind()
+{
+    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
+        if (m_previewView) m_previewView->clearFind();
+    }
+}
+
+void MainWindow::onFind()
+{
+    findNext();
+}
+
+void MainWindow::printToPdf(const QString& filePath)
+{
+    if (m_previewView) {
+        m_previewView->printToPdf(filePath);
+    }
+}
+
+void MainWindow::exportHtml(const QString& filePath, const std::function<void(bool)>& callback)
+{
+    if (!m_previewView) {
+        if (callback) callback(false);
+        return;
+    }
+    m_previewView->toHtml([filePath, callback](const QString& html) {
+        QFile file(filePath);
+        bool ok = false;
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            out << html;
+            file.close();
+            ok = true;
+        }
+        if (callback) callback(ok);
+    });
+}
+
+void MainWindow::copyHtmlToClipboard(const std::function<void(bool)>& callback)
+{
+    if (!m_previewView) {
+        if (callback) callback(false);
+        return;
+    }
+    m_previewView->toHtml([callback](const QString& html) {
+        QMimeData* mimeData = new QMimeData();
+        mimeData->setHtml(html);
+        mimeData->setText(html);
+        QApplication::clipboard()->setMimeData(mimeData);
+        if (callback) callback(true);
+    });
+}
+
+void MainWindow::onPrintPdf()
+{
+    QString defaultPath;
+    if (m_session && !m_session->filePath().isEmpty()) {
+        QFileInfo fi(m_session->filePath());
+        defaultPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".pdf";
+    }
+    QString selectedFile = QFileDialog::getSaveFileName(
+        this,
+        tr("Print / Export PDF"),
+        defaultPath,
+        tr("PDF Files (*.pdf);;All Files (*)")
+    );
+    if (!selectedFile.isEmpty()) {
+        printToPdf(selectedFile);
+    }
+}
+
+void MainWindow::onExportHtml()
+{
+    QString defaultPath;
+    if (m_session && !m_session->filePath().isEmpty()) {
+        QFileInfo fi(m_session->filePath());
+        defaultPath = fi.absolutePath() + "/" + fi.completeBaseName() + ".html";
+    }
+    QString selectedFile = QFileDialog::getSaveFileName(
+        this,
+        tr("Export to HTML"),
+        defaultPath,
+        tr("HTML Files (*.html *.htm);;All Files (*)")
+    );
+    if (!selectedFile.isEmpty()) {
+        exportHtml(selectedFile);
+    }
+}
+
+void MainWindow::onCopyHtml()
+{
+    copyHtmlToClipboard();
 }

@@ -23,6 +23,9 @@ public:
     DocumentSession* session() const { return m_session; }
     void setSession(DocumentSession* session);
 
+    bool isBridgeReady() const { return m_bridgeReady; }
+    QString pendingMarkdown() const { return m_pendingMarkdown; }
+
     void setMarkdown(const QString& markdown);
     void loadTemplate();
     void scrollToHeading(const QString& id);
@@ -36,9 +39,11 @@ public:
     void toHtml(const std::function<void(const QString&)>& callback);
 
 signals:
+    void bridgeInitialized();
     void tocUpdated(const QString& tocJson);
     void activeHeadingChanged(const QString& headingId);
     void findResult(int activeMatch, int totalMatches);
+    void documentRendered(int headingCount);
 
 private:
     QWebEngineView* m_webView = nullptr;
@@ -46,6 +51,7 @@ private:
     QWebChannel* m_channel = nullptr;
     DocumentSession* m_session = nullptr;
     bool m_pageLoaded = false;
+    bool m_bridgeReady = false;
     QString m_pendingMarkdown;
     QString m_lastFindText;
     bool m_lastFindCaseSensitive = false;
