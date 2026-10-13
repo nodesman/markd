@@ -1,7 +1,7 @@
-#include "MarkdApplication.h"
-#include "MainWindow.h"
-#include "CommandLineOptions.h"
-#include "Theme.h"
+#include "app/MarkdApplication.h"
+#include "ui/MainWindow.h"
+#include "app/CommandLineOptions.h"
+#include "ui/Theme.h"
 #include <iostream>
 
 int main(int argc, char* argv[])

@@ -1,0 +1,59 @@
+<RCC>
+    <qresource prefix="/web">
+        <!-- Canonical Web Engine Shell & Assets -->
+        <file>template.html</file>
+        <file>src/render.js</file>
+        <file>styles/obsidian.css</file>
+        <file>styles/style.css</file>
+
+        <!-- Package-by-Library Vendor Assets -->
+        <file>vendor/katex/katex.min.js</file>
+        <file>vendor/katex/katex.min.css</file>
+        <file>vendor/katex/fonts/KaTeX_AMS-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Fraktur-Bold.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Fraktur-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Main-Bold.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Main-BoldItalic.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Main-Italic.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Main-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Math-BoldItalic.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Math-Italic.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_SansSerif-Bold.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_SansSerif-Italic.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_SansSerif-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Script-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Size1-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Size2-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Size3-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Size4-Regular.woff2</file>
+        <file>vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2</file>
+
+        <file>vendor/mermaid/mermaid.min.js</file>
+        <file>vendor/highlight/highlight.min.js</file>
+        <file>vendor/highlight/github-dark.min.css</file>
+        <file>vendor/markdown-it/markdown-it.min.js</file>
+        <file>vendor/markdown-it/markdownItAnchor.umd.js</file>
+        <file>vendor/markdown-it/markdown-it-task-lists.min.js</file>
+        <file>vendor/markdown-it/texmath.min.js</file>
+        <file>vendor/purify/purify.min.js</file>
+        <file>vendor/qt/qwebchannel.js</file>
+
+        <!-- Backward Compatibility Aliases -->
+        <file alias="css/obsidian.css">styles/obsidian.css</file>
+        <file alias="css/style.css">styles/style.css</file>
+        <file alias="js/render.js">src/render.js</file>
+        <file alias="js/qwebchannel.js">vendor/qt/qwebchannel.js</file>
+        <file alias="js/katex.min.css">vendor/katex/katex.min.css</file>
+        <file alias="js/katex.min.js">vendor/katex/katex.min.js</file>
+        <file alias="js/highlight.min.js">vendor/highlight/highlight.min.js</file>
+        <file alias="js/github-dark.min.css">vendor/highlight/github-dark.min.css</file>
+        <file alias="js/mermaid.min.js">vendor/mermaid/mermaid.min.js</file>
+        <file alias="js/purify.min.js">vendor/purify/purify.min.js</file>
+        <file alias="js/markdown-it.min.js">vendor/markdown-it/markdown-it.min.js</file>
+        <file alias="js/markdownItAnchor.umd.js">vendor/markdown-it/markdownItAnchor.umd.js</file>
+        <file alias="js/markdown-it-task-lists.min.js">vendor/markdown-it/markdown-it-task-lists.min.js</file>
+        <file alias="js/texmath.min.js">vendor/markdown-it/texmath.min.js</file>
+    </qresource>
+</RCC>

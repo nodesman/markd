@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>
+        window.__resourceErrors = [];
+        window.addEventListener('error', function(event) {
+            if (event.target && (event.target.tagName === 'LINK' || event.target.tagName === 'SCRIPT' || event.target.tagName === 'IMG')) {
+                window.__resourceErrors.push(event.target.src || event.target.href || 'unknown');
+            }
+        }, true);
+    </script>
+    <style>
+        html, body {
+            background-color: #050505 !important;
+            color: #f0f6fc;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    <link rel="stylesheet" href="vendor/katex/katex.min.css">
+    <link rel="stylesheet" href="styles/obsidian.css">
+    <link rel="stylesheet" href="vendor/highlight/github-dark.min.css">
+    <script src="vendor/qt/qwebchannel.js"></script>
+    <script src="vendor/markdown-it/markdown-it.min.js"></script>
+    <script src="vendor/markdown-it/markdownItAnchor.umd.js"></script>
+    <script src="vendor/markdown-it/markdown-it-task-lists.min.js"></script>
+    <script src="vendor/highlight/highlight.min.js"></script>
+    <script src="vendor/katex/katex.min.js"></script>
+    <script src="vendor/markdown-it/texmath.min.js"></script>
+    <script src="vendor/mermaid/mermaid.min.js"></script>
+    <script src="vendor/purify/purify.min.js"></script>
+    <script src="src/render.js"></script>
+</head>
+<body style="background-color: #050505;">
+    <article id="content"></article>
+</body>
+</html>

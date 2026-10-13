@@ -20,44 +20,54 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChanne
 include_directories(src)
 
 set(COMMON_SOURCES
-    src/MarkdApplication.h
-    src/MarkdApplication.cpp
-    src/DocumentSession.h
-    src/DocumentSession.cpp
-    src/CommandLineOptions.h
-    src/CommandLineOptions.cpp
-    src/MenuBuilder.h
-    src/MenuBuilder.cpp
-    src/TocItem.h
-    src/TocParser.h
-    src/TocParser.cpp
-    src/TocWidget.h
-    src/TocWidget.cpp
-    src/MainWindow.h
-    src/MainWindow.cpp
-    src/Theme.h
-    src/Theme.cpp
-    src/PlatformFrame.h
-    src/HeaderBar.h
-    src/HeaderBar.cpp
-    src/ModeSwitcher.h
-    src/ModeSwitcher.cpp
-    src/WebBridge.h
-    src/WebBridge.cpp
-    src/Converter.h
-    src/Converter.cpp
-    src/PreviewView.h
-    src/PreviewView.cpp
+    src/app/MarkdApplication.h
+    src/app/MarkdApplication.cpp
+    src/app/CommandLineOptions.h
+    src/app/CommandLineOptions.cpp
+    src/core/DocumentSession.h
+    src/core/DocumentSession.cpp
+    src/core/Converter.h
+    src/core/Converter.cpp
+    src/parser/TocItem.h
+    src/parser/TocParser.h
+    src/parser/TocParser.cpp
+    src/bridge/WebBridge.h
+    src/bridge/WebBridge.cpp
+    src/ui/MainWindow.h
+    src/ui/MainWindow.cpp
+    src/ui/PreviewView.h
+    src/ui/PreviewView.cpp
+    src/ui/TocWidget.h
+    src/ui/TocWidget.cpp
+    src/ui/HeaderBar.h
+    src/ui/HeaderBar.cpp
+    src/ui/ModeSwitcher.h
+    src/ui/ModeSwitcher.cpp
+    src/ui/MenuBuilder.h
+    src/ui/MenuBuilder.cpp
+    src/ui/Theme.h
+    src/ui/Theme.cpp
+    src/ui/platform/PlatformFrame.h
     resources/theme.qrc
-    resources/web.qrc
+    web/web.qrc
 )
 
+foreach(PLATFORM_SRC
+    src/ui/platform/PlatformFrame_mac.mm
+    src/ui/platform/PlatformFrame_win.cpp
+    src/ui/platform/PlatformFrame_generic.cpp
+)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_SRC}")
+        message(FATAL_ERROR "Physical platform implementation source missing: ${PLATFORM_SRC}")
+    endif()
+endforeach()
+
 if(APPLE)
-    list(APPEND COMMON_SOURCES src/PlatformFrame_mac.mm)
+    list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_mac.mm)
 elseif(WIN32)
-    list(APPEND COMMON_SOURCES src/PlatformFrame_win.cpp)
+    list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_win.cpp)
 else()
-    list(APPEND COMMON_SOURCES src/PlatformFrame_generic.cpp)
+    list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_generic.cpp)
 endif()
 
 set(SOURCES

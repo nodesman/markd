@@ -18,8 +18,8 @@
 #include <sstream>
 #include <string>
 
-#include "../src/PreviewView.h"
-#include "../src/TocParser.h"
+#include "ui/PreviewView.h"
+#include "parser/TocParser.h"
 
 namespace RenderJsTest {
 
@@ -523,7 +523,7 @@ inline void testRenderJsEngine(QApplication& app) {
     std::cout << "\n================================================================================\n";
     std::cout << " MARKD HEADLESS CHROMIUM V8 TEST HARNESS FOR render.js\n";
     std::cout << " Plane Module: Module 9: Automated Verification & Engine Test Harness\n";
-    std::cout << " Target: resources/web/js/render.js (QtWebEngine Chromium V8 offscreen)\n";
+    std::cout << " Target: web/src/render.js (QtWebEngine Chromium V8 offscreen)\n";
     std::cout << "================================================================================\n";
 
     PreviewView previewView;
@@ -1003,7 +1003,7 @@ inline void testRenderJsEngine(QApplication& app) {
         double branchPct = totalBranches > 0 ? (100.0 * coveredBranches / totalBranches) : 100.0;
 
         std::cout << "\n--------------------------------------------------------------------------------\n";
-        std::cout << " CODE COVERAGE DETECTION REPORT: resources/web/js/render.js\n";
+        std::cout << " CODE COVERAGE DETECTION REPORT: web/src/render.js\n";
         std::cout << "--------------------------------------------------------------------------------\n";
         std::cout << " Metric       |  Total  | Covered | Coverage % | Status\n";
         std::cout << " -------------+---------+---------+------------+---------\n";
