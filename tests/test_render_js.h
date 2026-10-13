@@ -52,7 +52,7 @@ inline void waitForPageReady(PreviewView& previewView, int timeoutMs = 8000) {
         bool ready = false;
         QEventLoop checkLoop;
         page->runJavaScript(
-            "document.readyState === 'complete' && typeof renderMarkdown === 'function'",
+            "document.readyState === 'complete' && typeof renderMarkdown === 'function' && window.session !== null",
             [&](const QVariant& val) {
                 ready = val.toBool();
                 checkLoop.quit();
@@ -539,6 +539,29 @@ inline void testRenderJsEngine(QApplication& app) {
 
     // 2. Inject lightweight runtime AST/function instrumentation into Chromium V8 runtime
     injectCoverageHarness(page);
+
+    // -------------------------------------------------------------------------
+    // Suite 0: QWebChannel Published Session Object Contract
+    // -------------------------------------------------------------------------
+    {
+        // Assert that window.session is published into Chromium V8
+        assert(runJsSync(page, "window.session !== null && window.session !== undefined").toBool());
+        assert(runJsSync(page, "typeof window.session.reportActiveHeading === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.session.reportMetrics === 'function'").toBool());
+        assert(runJsSync(page, "typeof window.session.updateTOC === 'function'").toBool());
+
+        // Test autonomous reactive reporting via session.reportActiveHeading
+        QSignalSpy headingSpy(&previewView, &PreviewView::activeHeadingChanged);
+        runJsSync(page, "window.session.reportActiveHeading('test-heading-session')");
+        for (int i = 0; i < 5; ++i) {
+            QThread::msleep(20);
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+        assert(headingSpy.count() >= 1);
+        assert(headingSpy.last().at(0).toString() == "test-heading-session");
+
+        std::cout << " [PASS] Suite 0: QWebChannel Published Session Object Contract\n";
+    }
 
     // -------------------------------------------------------------------------
     // Suite 1: Markdown AST & DOM Compilation

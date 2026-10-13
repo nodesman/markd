@@ -1,11 +1,29 @@
 // QWebChannel Bridge setup for Qt C++ IPC
 window.markdBridge = null;
+window.session = null;
 function initQWebChannel() {
     if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined' && qt.webChannelTransport) {
         new QWebChannel(qt.webChannelTransport, function(channel) {
             window.markdBridge = channel.objects.markdBridge;
+            window.session = channel.objects.session;
             if (window.markdBridge) {
                 window.markdBridge.logMessage("QWebChannel connected to render.js");
+            }
+            if (window.session) {
+                if (window.session.markdownChanged && typeof window.session.markdownChanged.connect === 'function') {
+                    window.session.markdownChanged.connect(function(newMarkdown) {
+                        if (typeof renderMarkdown === 'function') {
+                            renderMarkdown(newMarkdown);
+                        }
+                    });
+                }
+                if (window.session.selectedHeadingChanged && typeof window.session.selectedHeadingChanged.connect === 'function') {
+                    window.session.selectedHeadingChanged.connect(function(headingId) {
+                        if (typeof scrollToHeading === 'function') {
+                            scrollToHeading(headingId);
+                        }
+                    });
+                }
             }
         });
     }
@@ -152,6 +170,9 @@ function extractAndSendTOC() {
         });
     });
 
+    if (window.session && typeof window.session.updateTOC === 'function') {
+        window.session.updateTOC(JSON.stringify(toc));
+    }
     if (window.markdBridge && typeof window.markdBridge.updateTOC === 'function') {
         window.markdBridge.updateTOC(JSON.stringify(toc));
     }
@@ -184,6 +205,9 @@ function setupScrollSpy() {
         });
 
         if (topHeading) {
+            if (window.session && typeof window.session.reportActiveHeading === 'function') {
+                window.session.reportActiveHeading(topHeading.id);
+            }
             if (window.markdBridge && typeof window.markdBridge.setActiveHeading === 'function') {
                 window.markdBridge.setActiveHeading(topHeading.id);
             }

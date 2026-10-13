@@ -5,6 +5,8 @@
 #include <QWebChannel>
 #include "WebBridge.h"
 
+class DocumentSession;
+
 class PreviewView : public QWidget {
     Q_OBJECT
 
@@ -15,6 +17,8 @@ public:
     QWebEngineView* webView() const { return m_webView; }
     WebBridge* bridge() const { return m_bridge; }
     QWebChannel* channel() const { return m_channel; }
+    DocumentSession* session() const { return m_session; }
+    void setSession(DocumentSession* session);
 
     void setMarkdown(const QString& markdown);
     void loadTemplate();
@@ -29,6 +33,7 @@ private:
     QWebEngineView* m_webView = nullptr;
     WebBridge* m_bridge = nullptr;
     QWebChannel* m_channel = nullptr;
+    DocumentSession* m_session = nullptr;
     bool m_pageLoaded = false;
     QString m_pendingMarkdown;
 };

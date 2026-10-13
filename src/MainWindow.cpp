@@ -95,6 +95,7 @@ void MainWindow::setupUI()
 
     // Initialize Headless DocumentSession Single Source of Truth
     m_session = new DocumentSession(this);
+    m_previewView->setSession(m_session);
 
     // Reactive observation of DocumentSession
     connect(m_session, &DocumentSession::markdownChanged, this, [this](const QString& md) {
