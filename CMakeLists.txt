@@ -125,3 +125,5 @@ endif()
 
 add_test(NAME test_render_js COMMAND test_render_js)
 
+set_tests_properties(test_cli test_render_js PROPERTIES RUN_SERIAL TRUE)
+
