@@ -1,5 +1,4 @@
 #include "PreviewView.h"
-#include "Converter.h"
 #include "DocumentSession.h"
 #include <QVBoxLayout>
 #include <QWebEnginePage>

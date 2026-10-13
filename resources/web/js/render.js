@@ -104,7 +104,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fun
     });
 });
 
-// ---- Main render function (called from Swift) ----
+// ---- Main render function ----
 
 async function renderMarkdown(markdownText) {
     const contentEl = document.getElementById('content');
@@ -147,7 +147,7 @@ async function renderMarkdown(markdownText) {
     // 6. Wrap tables in expandable containers
     wrapTables();
 
-    // 7. Extract TOC and send to Swift
+    // 7. Extract TOC
     extractAndSendTOC();
 
     // 8. Set up scroll spy
@@ -175,9 +175,6 @@ function extractAndSendTOC() {
     }
     if (window.markdBridge && typeof window.markdBridge.updateTOC === 'function') {
         window.markdBridge.updateTOC(JSON.stringify(toc));
-    }
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.tocUpdate) {
-        window.webkit.messageHandlers.tocUpdate.postMessage(JSON.stringify(toc));
     }
 }
 
@@ -211,9 +208,6 @@ function setupScrollSpy() {
             if (window.markdBridge && typeof window.markdBridge.setActiveHeading === 'function') {
                 window.markdBridge.setActiveHeading(topHeading.id);
             }
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.activeHeading) {
-                window.webkit.messageHandlers.activeHeading.postMessage(topHeading.id);
-            }
         }
     }, {
         rootMargin: '0px 0px -70% 0px',
@@ -225,7 +219,7 @@ function setupScrollSpy() {
     });
 }
 
-// ---- Scroll to heading (called from Swift) ----
+// ---- Scroll to heading ----
 
 function scrollToHeading(id) {
     var el = document.getElementById(id);

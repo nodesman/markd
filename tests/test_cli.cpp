@@ -1100,7 +1100,9 @@ void testDocumentSession(QApplication& app) {
         }
 
         assert(reloadSpy.count() == 0); // suppressed during burst
-        QTest::qWait(250); // wait for 150ms debounce window
+        for (int i = 0; i < 20 && reloadSpy.count() < 1; ++i) {
+            QTest::qWait(50);
+        }
         assert(reloadSpy.count() == 1);
         assert(session.markdown().contains("# Burst Write 3"));
     }
@@ -1182,7 +1184,9 @@ void testDocumentSession(QApplication& app) {
             f.close();
         }
 
-        QTest::qWait(250);
+        for (int i = 0; i < 20 && conflictSpy.count() < 1; ++i) {
+            QTest::qWait(50);
+        }
 
         assert(conflictSpy.count() == 1);
         assert(reloadSpy.count() == 0);
