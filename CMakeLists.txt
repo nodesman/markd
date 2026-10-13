@@ -20,6 +20,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChanne
 include_directories(src)
 
 set(COMMON_SOURCES
+    src/DocumentSession.h
+    src/DocumentSession.cpp
     src/CommandLineOptions.h
     src/CommandLineOptions.cpp
     src/MenuBuilder.h
