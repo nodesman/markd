@@ -55,6 +55,7 @@ public:
 signals:
     void sidebarToggled(bool collapsed);
     void findResult(int activeMatch, int totalMatches);
+    void pdfPrintingFinished(const QString& filePath, bool success);
 
 public slots:
     void updateToc();
@@ -96,4 +97,6 @@ private:
 
     int m_savedWidth = 250;
     bool m_collapsed = false;
+    QString m_lastFindText;
+    bool m_lastFindCaseSensitive = false;
 };

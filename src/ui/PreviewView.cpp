@@ -38,6 +38,9 @@ PreviewView::PreviewView(QWidget* parent)
     connect(m_bridge, &WebBridge::bridgeInitialized, this, [this]() {
         m_bridgeReady = true;
         emit bridgeInitialized();
+        if (m_session && !m_session->theme().isEmpty()) {
+            emit m_bridge->setTheme(m_session->theme());
+        }
         if (!m_pendingMarkdown.isEmpty()) {
             QString md = m_pendingMarkdown;
             m_pendingMarkdown.clear();
@@ -46,16 +49,30 @@ PreviewView::PreviewView(QWidget* parent)
     });
 
     connect(m_bridge, &WebBridge::tocUpdated, this, &PreviewView::tocUpdated);
-    connect(m_bridge, &WebBridge::activeHeadingChanged, this, &PreviewView::activeHeadingChanged);
+    connect(m_bridge, &WebBridge::activeHeadingChanged, this, [this](const QString& id) {
+        if (m_currentActiveHeading == id) return;
+        m_currentActiveHeading = id;
+        if (m_session && m_session->activeHeading() != id) {
+            m_session->setActiveHeading(id);
+        }
+        emit activeHeadingChanged(id);
+    });
     connect(m_bridge, &WebBridge::documentRendered, this, &PreviewView::documentRendered);
 
     connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
-    connect(m_session, &DocumentSession::activeHeadingChanged, this, &PreviewView::activeHeadingChanged);
+    connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
+        if (m_currentActiveHeading == id) return;
+        m_currentActiveHeading = id;
+        emit activeHeadingChanged(id);
+    });
 
     // Native hardware-accelerated Chromium search result notification
     connect(m_webView->page(), &QWebEnginePage::findTextFinished, this, [this](const QWebEngineFindTextResult& result) {
         emit findResult(result.activeMatch(), result.numberOfMatches());
     });
+
+    // Native asynchronous PDF print completion notification
+    connect(m_webView->page(), &QWebEnginePage::pdfPrintingFinished, this, &PreviewView::pdfPrintingFinished);
 
     connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
         m_pageLoaded = ok;
@@ -73,25 +90,41 @@ void PreviewView::loadTemplate()
 {
     m_bridgeReady = false;
     m_pageLoaded = false;
+    m_currentMarkdown.clear();
+    m_currentActiveHeading.clear();
     m_webView->setUrl(QUrl("qrc:/web/template.html"));
 }
 
 void PreviewView::setSession(DocumentSession* session)
 {
     if (m_session == session) return;
-    if (m_session && m_session->parent() == this) {
-        m_session->deleteLater();
+    if (m_session) {
+        disconnect(m_session, nullptr, this, nullptr);
+        if (m_session->parent() == this) {
+            m_session->deleteLater();
+        }
     }
     m_session = session;
     if (m_channel && m_session) {
         m_channel->registerObject(QStringLiteral("session"), m_session);
-        connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated, Qt::UniqueConnection);
-        connect(m_session, &DocumentSession::activeHeadingChanged, this, &PreviewView::activeHeadingChanged, Qt::UniqueConnection);
+        connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
+        connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
+            if (m_currentActiveHeading == id) return;
+            m_currentActiveHeading = id;
+            emit activeHeadingChanged(id);
+        });
+        connect(m_session, &DocumentSession::themeChanged, this, &PreviewView::setTheme);
     }
 }
 
 void PreviewView::setMarkdown(const QString& markdown)
 {
+    if (m_bridgeReady && m_currentMarkdown == markdown) {
+        return;
+    }
+
+    m_currentMarkdown = markdown;
+
     if (m_session && m_session->markdown() != markdown) {
         m_session->setMarkdown(markdown);
     }
@@ -109,6 +142,13 @@ void PreviewView::scrollToHeading(const QString& id)
 {
     if (m_bridgeReady) {
         emit m_bridge->navigateToHeading(id);
+    }
+}
+
+void PreviewView::setTheme(const QString& themeName)
+{
+    if (m_bridgeReady) {
+        emit m_bridge->setTheme(themeName);
     }
 }
 

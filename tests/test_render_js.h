@@ -126,6 +126,7 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
             'closeFullView': 'Modal overlay programmatic teardown and listener unbinding',
             'bridge.renderDocument': 'WebBridge downlink renderDocument signal dispatch',
             'bridge.navigateToHeading': 'WebBridge downlink navigateToHeading signal dispatch',
+            'bridge.setTheme': 'WebBridge downlink setTheme signal dispatch',
             'bridge.bridgeReady': 'WebBridge uplink handshake notification'
         },
         statementMap: {
@@ -429,6 +430,11 @@ inline void injectCoverageHarness(QWebEnginePage* page) {
         if (window.markdBridge.navigateToHeading && typeof window.markdBridge.navigateToHeading.connect === 'function') {
             window.markdBridge.navigateToHeading.connect(function() {
                 fn('bridge.navigateToHeading');
+            });
+        }
+        if (window.markdBridge.setTheme && typeof window.markdBridge.setTheme.connect === 'function') {
+            window.markdBridge.setTheme.connect(function() {
+                fn('bridge.setTheme');
             });
         }
     }
@@ -829,6 +835,14 @@ inline void testRenderJsEngine(QApplication& app) {
             QThread::msleep(20);
             QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
         }
+
+        // 3.5 Downlink domain action: setTheme
+        emit previewView.bridge()->setTheme("theme-aurora");
+        for (int i = 0; i < 5; ++i) {
+            QThread::msleep(20);
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
+        assert(runJsSync(page, "document.documentElement.getAttribute('data-theme') === 'theme-aurora'").toBool());
 
         // 4. Uplink reactive reporting: onActiveHeadingChanged
         QSignalSpy headingSpy(&previewView, &PreviewView::activeHeadingChanged);

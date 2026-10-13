@@ -56,7 +56,7 @@ void DocumentSession::setTheme(const QString& theme) {
 }
 
 void DocumentSession::setZoomFactor(qreal factor) {
-    qreal clamped = std::clamp(factor, 0.5, 3.0);
+    qreal clamped = std::clamp(factor, 0.25, 3.0);
     clamped = std::round(clamped * 100.0) / 100.0;
     if (std::abs(m_zoomFactor - clamped) > 0.001) {
         m_zoomFactor = clamped;

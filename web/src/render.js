@@ -26,7 +26,9 @@ function initQWebChannel() {
                 }
                 if (window.markdBridge.setTheme && typeof window.markdBridge.setTheme.connect === 'function') {
                     window.markdBridge.setTheme.connect(function(themeName) {
-                        // Apply theme if supported
+                        if (themeName) {
+                            document.documentElement.setAttribute('data-theme', themeName);
+                        }
                     });
                 }
 
@@ -132,7 +134,14 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fun
 
 // ---- Main render function ----
 
-async function renderMarkdown(markdownText) {
+var currentRenderedMarkdown = null;
+
+async function renderMarkdown(markdownText, options) {
+    if (markdownText === currentRenderedMarkdown && (!options || !options.force)) {
+        return;
+    }
+    currentRenderedMarkdown = markdownText;
+
     const contentEl = document.getElementById('content');
 
     // 1. Parse markdown to HTML
@@ -231,7 +240,17 @@ function setupScrollSpy() {
 
 // ---- Scroll to heading ----
 
+var lastScrolledHeadingId = null;
+var lastScrollTimestamp = 0;
+
 function scrollToHeading(id) {
+    var now = Date.now();
+    if (id === lastScrolledHeadingId && now - lastScrollTimestamp < 150) {
+        return;
+    }
+    lastScrolledHeadingId = id;
+    lastScrollTimestamp = now;
+
     var el = document.getElementById(id);
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });

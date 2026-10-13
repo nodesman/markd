@@ -1062,7 +1062,7 @@ void testDocumentSession(QApplication& app) {
         assert(autoHeadings[0].title == "Auto Debounced");
     }
 
-    // 5. clamps zoom factor within bounds (0.5x - 3.0x)
+    // 5. clamps zoom factor within bounds (0.25x - 3.0x)
     {
         DocumentSession session;
         assert(std::abs(session.zoomFactor() - 1.0) < 0.001);
@@ -1077,7 +1077,7 @@ void testDocumentSession(QApplication& app) {
         assert(std::abs(session.zoomFactor() - 3.0) < 0.001);
 
         for (int i = 0; i < 40; ++i) session.zoomOut();
-        assert(std::abs(session.zoomFactor() - 0.5) < 0.001);
+        assert(std::abs(session.zoomFactor() - 0.25) < 0.001);
 
         session.resetZoom();
         assert(std::abs(session.zoomFactor() - 1.0) < 0.001);
@@ -1388,10 +1388,18 @@ void testNativeChromiumModernization(MarkdApplication& app) {
     assert(htmlReceived);
     assert(!exportedHtml.isEmpty());
 
-    // 5. initiates PDF export with target file path
+    // 5. initiates PDF export with target file path and validates output file
     QString pdfPath = QDir::tempPath() + QString("/markd_test_%1.pdf").arg(QDateTime::currentMSecsSinceEpoch());
+    QSignalSpy pdfSpy(&previewView, &PreviewView::pdfPrintingFinished);
     previewView.printToPdf(pdfPath);
-    QTest::qWait(100);
+    for (int i = 0; i < 30 && pdfSpy.count() < 1; ++i) {
+        QTest::qWait(50);
+    }
+    assert(pdfSpy.count() == 1);
+    assert(pdfSpy.last().at(1).toBool() == true);
+    assert(QFile::exists(pdfPath));
+    assert(QFileInfo(pdfPath).size() > 0);
+    QFile::remove(pdfPath);
 
     std::cout << "PASS: William Zinsser Native Chromium modernization tests passed!\n";
 }
@@ -1606,7 +1614,13 @@ void testDomainSemanticActionProtocol(MarkdApplication& app) {
         assert(navSpy.count() >= 1);
         assert(navSpy.last().at(0).toString() == "rendered-via-typed-signal");
 
-        // it("forwards activeHeadingChanged signals from web runtime to TOC sidebar");
+        // it("dispatches setTheme signal to web runtime");
+        QSignalSpy themeSpy(previewView.bridge(), &WebBridge::setTheme);
+        previewView.setTheme("dark");
+        assert(themeSpy.count() >= 1);
+        assert(themeSpy.last().at(0).toString() == "dark");
+
+        // it("forwards activeHeadingChanged signals from web runtime to TOC sidebar and session");
         MainWindow win;
         win.resize(1000, 650);
         win.show();
@@ -1620,6 +1634,11 @@ void testDomainSemanticActionProtocol(MarkdApplication& app) {
         emit win.previewView()->activeHeadingChanged("heading-two");
         app.processEvents();
         assert(win.tocWidget()->activeHeadingId() == "heading-two");
+        assert(win.session()->activeHeading() == "heading-two");
+
+        // Activating heading from TOC sidebar synchronizes session selected heading
+        emit win.tocWidget()->headingActivated("heading-two");
+        assert(win.session()->selectedHeading() == "heading-two");
 
         std::cout << "PASS: WebBridge Domain Action Protocol tests passed!\n";
     }
@@ -1660,9 +1679,31 @@ void testDomainSemanticActionProtocol(MarkdApplication& app) {
         assert(total >= 3);
         assert(active >= 1);
 
+        // it("cycles through match occurrences via findNext and findPrevious");
+        win.findNext();
+        QTest::qWait(50);
+        win.findPrevious();
+        QTest::qWait(50);
+
         // it("clears search highlights natively without DOM tree mutations");
         win.clearFind();
-        assert(findSpy.count() >= 2);
+        assert(findSpy.last().at(0).toInt() == 0);
+        assert(findSpy.last().at(1).toInt() == 0);
+
+        // it("executes search and navigates matches in Edit mode");
+        win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Edit);
+        win.editor()->setPlainText("Alpha query bravo charlie query delta query.");
+        win.findText("query", true, false);
+        assert(findSpy.last().at(0).toInt() == 1);
+        assert(findSpy.last().at(1).toInt() == 3);
+
+        win.findNext();
+        assert(win.editor()->textCursor().hasSelection());
+        win.findPrevious();
+        assert(win.editor()->textCursor().hasSelection());
+
+        win.clearFind();
+        assert(!win.editor()->textCursor().hasSelection());
         assert(findSpy.last().at(0).toInt() == 0);
         assert(findSpy.last().at(1).toInt() == 0);
 
@@ -1689,15 +1730,20 @@ void testDomainSemanticActionProtocol(MarkdApplication& app) {
         assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.0) < 0.01);
         assert(std::abs(win.editor()->font().pointSizeF() - 13.0) < 0.01);
 
-        // it("clamps zoom factor strictly between 0.25x and 3.0x");
-        win.previewView()->setZoomFactor(0.1); // below minimum
+        // it("clamps zoom factor strictly between 0.25x and 3.0x across session and viewports");
+        win.session()->setZoomFactor(0.1); // below minimum clamp
+        assert(std::abs(win.session()->zoomFactor() - 0.25) < 0.01);
         assert(std::abs(win.previewView()->webView()->zoomFactor() - 0.25) < 0.01);
+        assert(std::abs(win.editor()->font().pointSizeF() - (13.0 * 0.25)) < 0.01);
 
-        win.previewView()->setZoomFactor(5.0); // above maximum
+        win.session()->setZoomFactor(5.0); // above maximum clamp
+        assert(std::abs(win.session()->zoomFactor() - 3.0) < 0.01);
         assert(std::abs(win.previewView()->webView()->zoomFactor() - 3.0) < 0.01);
+        assert(std::abs(win.editor()->font().pointSizeF() - (13.0 * 3.0)) < 0.01);
 
-        win.previewView()->setZoomFactor(1.0);
+        win.session()->resetZoom();
         assert(std::abs(win.previewView()->webView()->zoomFactor() - 1.0) < 0.01);
+        assert(std::abs(win.editor()->font().pointSizeF() - 13.0) < 0.01);
 
         std::cout << "PASS: Unified Desktop Zoom Engine tests passed!\n";
     }
@@ -1735,14 +1781,18 @@ void testDomainSemanticActionProtocol(MarkdApplication& app) {
         assert(htmlContent.contains("<html"));
         assert(htmlContent.contains("Export Brief"));
 
-        // it("renders document directly to PDF via native printToPdf");
+        // it("renders document directly to PDF via native printToPdf and verifies output file");
         QString pdfPath = QDir::tempPath() + QString("/markd_print_%1.pdf").arg(QDateTime::currentMSecsSinceEpoch());
+        QSignalSpy pdfSpy(&win, &MainWindow::pdfPrintingFinished);
         win.printToPdf(pdfPath);
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 30 && pdfSpy.count() < 1; ++i) {
             QTest::qWait(50);
         }
-        QTest::qWait(200);
-        assert(!pdfPath.isEmpty());
+        assert(pdfSpy.count() == 1);
+        assert(pdfSpy.last().at(1).toBool() == true);
+        assert(QFile::exists(pdfPath));
+        assert(QFileInfo(pdfPath).size() > 0);
+        QFile::remove(pdfPath);
 
         std::cout << "PASS: Native Document Export & Print tests passed!\n";
     }

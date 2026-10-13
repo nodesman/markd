@@ -95,7 +95,13 @@ void MainWindow::setupUI()
     // Connect TOC jump and scroll-spy
     connect(m_tocWidget, &TocWidget::headingActivated, this, &MainWindow::onHeadingActivated);
     connect(m_previewView, &PreviewView::activeHeadingChanged, m_tocWidget, &TocWidget::setActiveHeading);
+    connect(m_previewView, &PreviewView::activeHeadingChanged, this, [this](const QString& id) {
+        if (m_session && m_session->activeHeading() != id) {
+            m_session->setActiveHeading(id);
+        }
+    });
     connect(m_previewView, &PreviewView::findResult, this, &MainWindow::onFindResult);
+    connect(m_previewView, &PreviewView::pdfPrintingFinished, this, &MainWindow::pdfPrintingFinished);
 
     // Initialize Headless DocumentSession Single Source of Truth
     m_session = new DocumentSession(this);
@@ -106,10 +112,12 @@ void MainWindow::setupUI()
         if (m_editor && m_editor->toPlainText() != md) {
             m_editor->setPlainText(md);
         }
-        if (m_previewView) {
+        if (m_previewView && m_previewView->currentMarkdown() != md) {
             m_previewView->setMarkdown(md);
         }
     });
+
+    connect(m_session, &DocumentSession::themeChanged, m_previewView, &PreviewView::setTheme);
 
     connect(m_session, &DocumentSession::filePathChanged, this, &MainWindow::updateWindowTitle);
     connect(m_session, &DocumentSession::dirtyChanged, this, &MainWindow::updateWindowTitle);
@@ -301,6 +309,10 @@ void MainWindow::onHeadingActivated(const QString& id)
 
     if (it == items.end()) return;
 
+    if (m_session) {
+        m_session->setSelectedHeading(id);
+    }
+
     if (m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Edit) {
         int line = it->lineNumber;
         QTextDocument* doc = m_editor->document();
@@ -468,6 +480,14 @@ void MainWindow::onFindResult(int activeMatch, int totalMatches)
 
 void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
 {
+    m_lastFindText = text;
+    m_lastFindCaseSensitive = caseSensitive;
+
+    if (text.isEmpty()) {
+        clearFind();
+        return;
+    }
+
     if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
         if (m_previewView) {
             m_previewView->findText(text, forward, caseSensitive);
@@ -478,7 +498,21 @@ void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
             if (!forward) flags |= QTextDocument::FindBackward;
             if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
             bool found = m_editor->find(text, flags);
-            emit findResult(found ? 1 : 0, found ? 1 : 0);
+            if (!found) {
+                QTextCursor cur = m_editor->textCursor();
+                cur.movePosition(forward ? QTextCursor::Start : QTextCursor::End);
+                m_editor->setTextCursor(cur);
+                found = m_editor->find(text, flags);
+            }
+            int total = 0;
+            Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+            int idx = 0;
+            const QString& content = m_editor->toPlainText();
+            while ((idx = content.indexOf(text, idx, cs)) != -1) {
+                total++;
+                idx += text.length();
+            }
+            emit findResult(found ? 1 : 0, total);
         }
     }
 }
@@ -487,6 +521,10 @@ void MainWindow::findNext()
 {
     if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
         if (m_previewView) m_previewView->findNext();
+    } else {
+        if (m_editor && !m_lastFindText.isEmpty()) {
+            findText(m_lastFindText, true, m_lastFindCaseSensitive);
+        }
     }
 }
 
@@ -494,13 +532,25 @@ void MainWindow::findPrevious()
 {
     if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
         if (m_previewView) m_previewView->findPrevious();
+    } else {
+        if (m_editor && !m_lastFindText.isEmpty()) {
+            findText(m_lastFindText, false, m_lastFindCaseSensitive);
+        }
     }
 }
 
 void MainWindow::clearFind()
 {
+    m_lastFindText.clear();
     if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
         if (m_previewView) m_previewView->clearFind();
+    } else {
+        if (m_editor) {
+            QTextCursor cur = m_editor->textCursor();
+            cur.clearSelection();
+            m_editor->setTextCursor(cur);
+        }
+        emit findResult(0, 0);
     }
 }
 
