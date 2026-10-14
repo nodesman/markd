@@ -3,72 +3,69 @@
 #include <QStringList>
 #include <cassert>
 #include <iostream>
+#include "Zinsser.h"
 #include "app/CommandLineOptions.h"
 
 inline void testCommandLineOptions() {
-    // Test 1: Empty args
-    {
-        QStringList args = {"markd"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(opts.parseSuccess);
-        assert(!opts.showHelp);
-        assert(!opts.showVersion);
-        assert(!opts.hasFile);
-    }
+    using Zinsser::describe;
+    using Zinsser::it;
 
-    // Test 2: Help flag
-    {
-        QStringList args = {"markd", "--help"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(opts.parseSuccess);
-        assert(opts.showHelp);
-        assert(!opts.showVersion);
-        assert(!opts.hasFile);
-    }
+    describe("Command line argument parsing and validation", [&]() {
+        it("parses empty arguments into default options", [&]() {
+            QStringList args = {"markd"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(!opts.showHelp);
+            assert(!opts.showVersion);
+            assert(!opts.hasFile);
+        });
 
-    // Test 3: Short help flag
-    {
-        QStringList args = {"markd", "-h"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(opts.parseSuccess);
-        assert(opts.showHelp);
-    }
+        it("flags help option under long flag (--help)", [&]() {
+            QStringList args = {"markd", "--help"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(opts.showHelp);
+            assert(!opts.showVersion);
+            assert(!opts.hasFile);
+        });
 
-    // Test 4: Version flag
-    {
-        QStringList args = {"markd", "--version"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(opts.parseSuccess);
-        assert(!opts.showHelp);
-        assert(opts.showVersion);
-    }
+        it("flags help option under short flag (-h)", [&]() {
+            QStringList args = {"markd", "-h"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(opts.showHelp);
+        });
 
-    // Test 5: File argument
-    {
-        QStringList args = {"markd", "README.md"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(opts.parseSuccess);
-        assert(!opts.showHelp);
-        assert(!opts.showVersion);
-        assert(opts.hasFile);
-        assert(opts.filePath == "README.md");
-    }
+        it("flags version option under long flag (--version)", [&]() {
+            QStringList args = {"markd", "--version"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(!opts.showHelp);
+            assert(opts.showVersion);
+        });
 
-    // Test 6: Unknown option
-    {
-        QStringList args = {"markd", "--unknown-flag"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(!opts.parseSuccess);
-        assert(opts.errorMessage.contains("Unknown option"));
-    }
+        it("captures positional markdown document path", [&]() {
+            QStringList args = {"markd", "README.md"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(!opts.showHelp);
+            assert(!opts.showVersion);
+            assert(opts.hasFile);
+            assert(opts.filePath == "README.md");
+        });
 
-    // Test 7: Multiple positional arguments
-    {
-        QStringList args = {"markd", "file1.md", "file2.md"};
-        CommandLineOptions opts = CommandLineOptions::parse(args);
-        assert(!opts.parseSuccess);
-        assert(opts.errorMessage.contains("Unexpected positional argument"));
-    }
+        it("rejects unknown options with descriptive error message", [&]() {
+            QStringList args = {"markd", "--unknown-flag"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(!opts.parseSuccess);
+            assert(opts.errorMessage.contains("Unknown option"));
+        });
 
-    std::cout << "PASS: CommandLineOptions tests passed!\n";
+        it("rejects superfluous positional arguments", [&]() {
+            QStringList args = {"markd", "file1.md", "file2.md"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(!opts.parseSuccess);
+            assert(opts.errorMessage.contains("Unexpected positional argument"));
+        });
+    });
 }
