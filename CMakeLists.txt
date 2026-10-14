@@ -115,25 +115,12 @@ endif()
 
 add_test(NAME test_cli COMMAND test_cli)
 
-add_executable(test_render_js
-    tests/test_render_js.cpp
-    ${COMMON_SOURCES}
-)
-
-target_link_libraries(test_render_js PRIVATE
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Widgets
-    Qt6::WebEngineWidgets
-    Qt6::WebChannel
-    Qt6::Test
-)
-
-if(APPLE)
-    target_link_libraries(test_render_js PRIVATE "-framework Cocoa")
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+    add_test(NAME test_render_js COMMAND ${NODE_EXECUTABLE} --test ${CMAKE_CURRENT_SOURCE_DIR}/tests/render.test.js)
+    set_tests_properties(test_cli test_render_js PROPERTIES RUN_SERIAL TRUE)
+else()
+    set_tests_properties(test_cli PROPERTIES RUN_SERIAL TRUE)
 endif()
 
-add_test(NAME test_render_js COMMAND test_render_js)
-
-set_tests_properties(test_cli test_render_js PROPERTIES RUN_SERIAL TRUE)
 
