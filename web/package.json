@@ -1,18 +1,18 @@
 {
-  "name": "qt",
+  "name": "markd-web",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
-  },
+  "description": "Markd web runtime and markdown renderer",
+  "main": "src/render.js",
   "scripts": {
     "test": "node --test tests/render.test.js"
   },
-  "keywords": [],
+  "keywords": [
+    "markdown",
+    "render",
+    "preview"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "jsdom": "^29.1.1"
   }

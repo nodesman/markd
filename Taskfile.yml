@@ -26,6 +26,19 @@ tasks:
     cmds:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure --verbose
 
+  test-web:
+    desc: Run JavaScript test suite with Node.js
+    dir: web
+    cmds:
+      - npm test
+
+  test-all:
+    desc: Run both C++ CTest and JavaScript test suites
+    cmds:
+      - task: test
+      - task: test-web
+
+
   run:
     desc: Run Markd executable with optional markdown file (e.g. task run -- file.md)
     deps: [build]

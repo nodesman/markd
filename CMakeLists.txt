@@ -115,12 +115,6 @@ endif()
 
 add_test(NAME test_cli COMMAND test_cli)
 
-find_program(NODE_EXECUTABLE node)
-if(NODE_EXECUTABLE)
-    add_test(NAME test_render_js COMMAND ${NODE_EXECUTABLE} --test ${CMAKE_CURRENT_SOURCE_DIR}/tests/render.test.js)
-    set_tests_properties(test_cli test_render_js PROPERTIES RUN_SERIAL TRUE)
-else()
-    set_tests_properties(test_cli PROPERTIES RUN_SERIAL TRUE)
-endif()
+set_tests_properties(test_cli PROPERTIES RUN_SERIAL TRUE)
 
 

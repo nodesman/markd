@@ -67,8 +67,8 @@ function createRenderEnvironment() {
         }
     };
 
-    // Load vendor libraries and render.js in strict dependency order
-    const webDir = path.resolve(__dirname, '../web');
+    // Load vendor libraries and render.js in strict dependency order from web root
+    const webDir = path.resolve(__dirname, '..');
 
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it.min.js'), 'utf8'));
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdownItAnchor.umd.js'), 'utf8'));
