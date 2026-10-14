@@ -42,6 +42,21 @@ void MainWindow::setupUI()
     m_headerBar = new HeaderBar(this);
     rootLayout->addWidget(m_headerBar);
 
+    m_sidebarToggleButton = new SidebarToggleButton(QString::fromUtf8("◨"), this);
+    m_sidebarToggleButton->setObjectName("sidebarToggleButton");
+    m_sidebarToggleButton->setFixedSize(28, 26);
+    m_sidebarToggleButton->setAccessibleName(tr("Toggle Table of Contents Outline"));
+#if defined(Q_OS_MACOS)
+    m_sidebarToggleButton->setToolTip(tr("Toggle Outline (Cmd+\\) / F9"));
+#else
+    m_sidebarToggleButton->setToolTip(tr("Toggle Outline (Ctrl+\\) / F9"));
+#endif
+    m_sidebarToggleButton->setFocusPolicy(Qt::NoFocus);
+    m_sidebarToggleButton->setCheckable(true);
+    m_sidebarToggleButton->setChecked(true);
+    m_headerBar->leadingSlot()->layout()->addWidget(m_sidebarToggleButton);
+    m_headerBar->balanceFlanks();
+
     m_modeSwitcher = new ModeSwitcher(m_headerBar->centerSlot());
     m_headerBar->centerSlot()->layout()->addWidget(m_modeSwitcher);
 
@@ -157,10 +172,25 @@ void MainWindow::setupUI()
         connect(m_actions.toggleModeAction, &QAction::triggered, m_modeSwitcher, &ModeSwitcher::toggleMode);
     }
 
-    // Connect Toggle Sidebar Action (Cmd+\ / Ctrl+\)
+    // Connect Toggle Sidebar Action (Cmd+\ / Ctrl+\, F9)
     if (m_actions.toggleSidebarAction) {
         connect(m_actions.toggleSidebarAction, &QAction::triggered, this, &MainWindow::toggleSidebar);
     }
+
+    // Connect Sidebar Toggle Button
+    if (m_sidebarToggleButton) {
+        connect(m_sidebarToggleButton, &QPushButton::clicked, this, &MainWindow::toggleSidebar);
+    }
+
+    // Synchronize UI highlight with sidebar collapse state
+    connect(this, &MainWindow::sidebarToggled, this, [this](bool collapsed) {
+        if (m_sidebarToggleButton) {
+            m_sidebarToggleButton->setChecked(!collapsed);
+        }
+        if (m_actions.toggleSidebarAction) {
+            m_actions.toggleSidebarAction->setChecked(!collapsed);
+        }
+    });
 
     // Connect Standard File Actions
     if (m_actions.openAction) {
@@ -296,8 +326,31 @@ bool MainWindow::restoreSplitterState(const QByteArray& state)
             m_tocWidget->setMinimumWidth(200);
             m_savedWidth = std::max(currentWidth, 200);
         }
+        emit sidebarToggled(m_collapsed);
     }
     return ok;
+}
+
+bool MainWindow::restoreSplitterState(bool collapsed, int targetWidth)
+{
+    m_savedWidth = std::max(targetWidth, 200);
+    int totalWidth = m_mainSplitter->width();
+    if (totalWidth <= 0) totalWidth = width();
+    if (totalWidth <= 0) totalWidth = 1024;
+
+    if (collapsed) {
+        m_collapsed = true;
+        m_tocWidget->setMinimumWidth(0);
+        m_mainSplitter->setSizes({0, totalWidth});
+        emit sidebarToggled(true);
+    } else {
+        m_collapsed = false;
+        m_tocWidget->setMinimumWidth(200);
+        int rest = std::max(320, totalWidth - m_savedWidth);
+        m_mainSplitter->setSizes({m_savedWidth, rest});
+        emit sidebarToggled(false);
+    }
+    return true;
 }
 
 void MainWindow::onHeadingActivated(const QString& id)

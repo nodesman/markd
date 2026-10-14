@@ -222,3 +222,27 @@ QSplitter::handle:horizontal:pressed {
     background-color: #58a6ff;
 }
 
+/* Sidebar Toggle Button (◨) Obsidian Design Tokens */
+#sidebarToggleButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 13px;
+    padding: 0;
+}
+
+#sidebarToggleButton:hover {
+    background: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+
+#sidebarToggleButton:pressed,
+#sidebarToggleButton:checked {
+    background: #21262d;
+    border-color: #388bfd;
+    color: #58a6ff;
+}
+
+

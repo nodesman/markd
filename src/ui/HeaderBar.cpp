@@ -3,6 +3,23 @@
 #include <QWindow>
 #include <algorithm>
 
+SidebarToggleButton::SidebarToggleButton(QWidget* parent)
+    : QPushButton(parent)
+{
+}
+
+SidebarToggleButton::SidebarToggleButton(const QString& text, QWidget* parent)
+    : QPushButton(text, parent)
+{
+}
+
+void SidebarToggleButton::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    event->accept(); // Halt event bubbling to HeaderBar to isolate window maximization
+    QPushButton::mouseDoubleClickEvent(event); // Delegate without manual click() to prevent triple-toggle
+    event->accept();
+}
+
 HeaderBar::HeaderBar(QWidget* parent)
     : QWidget(parent)
 {

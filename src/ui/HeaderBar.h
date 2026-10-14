@@ -1,9 +1,22 @@
 #pragma once
 
 #include <QWidget>
+#include <QPushButton>
 #include <QHBoxLayout>
 #include <QMouseEvent>
 #include "ui/platform/PlatformFrame.h"
+
+class SidebarToggleButton : public QPushButton {
+    Q_OBJECT
+
+public:
+    explicit SidebarToggleButton(QWidget* parent = nullptr);
+    explicit SidebarToggleButton(const QString& text, QWidget* parent = nullptr);
+    ~SidebarToggleButton() override = default;
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+};
 
 class HeaderBar : public QWidget {
     Q_OBJECT
@@ -17,6 +30,7 @@ public:
     QWidget* trailingSlot() const { return m_trailingSlot; }
 
     void updateMargins();
+    void balanceFlanks();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -25,7 +39,6 @@ protected:
 
 private:
     void setupUI();
-    void balanceFlanks();
 
     QWidget* m_leadingSlot = nullptr;
     QWidget* m_centerSlot = nullptr;

@@ -33,6 +33,7 @@ public:
     QStackedWidget* viewportStack() const { return m_viewportStack; }
     QSplitter* mainSplitter() const { return m_mainSplitter; }
     TocWidget* tocWidget() const { return m_tocWidget; }
+    QPushButton* sidebarToggleButton() const { return m_sidebarToggleButton; }
 
     bool isSidebarCollapsed() const { return m_collapsed; }
     int sidebarSavedWidth() const { return m_savedWidth; }
@@ -40,6 +41,7 @@ public:
     void setSidebarCollapsed(bool collapsed);
     void toggleSidebar();
     bool restoreSplitterState(const QByteArray& state);
+    bool restoreSplitterState(bool collapsed, int targetWidth = 250);
 
     // Native Chromium Search API
     void findText(const QString& text, bool forward = true, bool caseSensitive = false);
@@ -87,6 +89,7 @@ private:
 
     DocumentSession* m_session = nullptr;
     HeaderBar* m_headerBar = nullptr;
+    SidebarToggleButton* m_sidebarToggleButton = nullptr;
     ModeSwitcher* m_modeSwitcher = nullptr;
     QSplitter* m_mainSplitter = nullptr;
     TocWidget* m_tocWidget = nullptr;

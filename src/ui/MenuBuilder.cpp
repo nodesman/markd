@@ -134,14 +134,20 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #endif
     viewMenu->addAction(actions.toggleModeAction);
 
-    // Toggle Sidebar (Cmd+\ / Ctrl+\)
+    // Toggle Sidebar (Cmd+\ / Ctrl+\, F9)
     actions.toggleSidebarAction = new QAction(QObject::tr("Toggle &Sidebar"), parent);
     actions.toggleSidebarAction->setObjectName("action_toggle_sidebar");
+    actions.toggleSidebarAction->setCheckable(true);
+    actions.toggleSidebarAction->setChecked(true);
 #if defined(Q_OS_MACOS)
-    actions.toggleSidebarAction->setShortcut(QKeySequence(Qt::META | Qt::Key_Backslash));
+    QKeySequence primarySidebarShortcut(Qt::META | Qt::Key_Backslash);
 #else
-    actions.toggleSidebarAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backslash));
+    QKeySequence primarySidebarShortcut(Qt::CTRL | Qt::Key_Backslash);
 #endif
+    actions.toggleSidebarAction->setShortcuts({
+        primarySidebarShortcut,
+        QKeySequence(Qt::Key_F9)
+    });
     viewMenu->addAction(actions.toggleSidebarAction);
 
     // Toggle Word Wrap (Opt+Z / Alt+Z)
