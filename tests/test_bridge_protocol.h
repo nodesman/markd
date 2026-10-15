@@ -433,6 +433,18 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             assert(previewBtn != nullptr);
             assert(editBtn->focusPolicy() == Qt::NoFocus);
             assert(previewBtn->focusPolicy() == Qt::NoFocus);
+
+            QTest::mouseClick(previewBtn, Qt::LeftButton);
+            app.processEvents();
+            assert(win.modeSwitcher()->currentMode() == ModeSwitcher::DocumentMode::Preview);
+            assert(!previewBtn->hasFocus());
+            assert(win.previewView()->webView()->hasFocus());
+
+            QTest::mouseClick(editBtn, Qt::LeftButton);
+            app.processEvents();
+            assert(win.modeSwitcher()->currentMode() == ModeSwitcher::DocumentMode::Edit);
+            assert(!editBtn->hasFocus());
+            assert(win.editor()->hasFocus());
         });
     });
 }
