@@ -886,13 +886,20 @@ describe('render.js Native Node.js Test Suite', () => {
 
         it('handles and logs mermaid rendering exceptions gracefully', async () => {
             const env = createRenderEnvironment();
+            let loggedMessage = null;
+            let loggedError = null;
+            env.win.console.error = (msg, err) => {
+                loggedMessage = msg;
+                loggedError = err;
+            };
             env.win.mermaid.run = async () => {
                 throw new Error('Simulated mermaid parser failure');
             };
 
-            // Should not throw or crash render pipeline
             await env.win.renderMarkdown('```mermaid\ninvalid syntax;\n```');
             assert.ok(env.doc.querySelector('#content') !== null);
+            assert.equal(loggedMessage, 'Mermaid render error:');
+            assert.equal(loggedError?.message, 'Simulated mermaid parser failure');
         });
 
         it('handles container zoom reset, mousewheel zooming, and fullview replacement', async () => {
