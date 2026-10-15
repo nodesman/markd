@@ -8,11 +8,17 @@ const { JSDOM } = require('jsdom');
  * Creates a clean JSDOM window environment with vendor scripts and render.js evaluated.
  */
 function createRenderEnvironment() {
+    const webDir = path.resolve(__dirname, '..');
+    const obsidianCss = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+    const katexCss = fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.css'), 'utf8');
+
     const html = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>${obsidianCss}</style>
+    <style>${katexCss}</style>
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles/obsidian.css">
     <link rel="stylesheet" href="vendor/highlight/github-dark.min.css">
@@ -27,6 +33,11 @@ function createRenderEnvironment() {
         pretendToBeVisual: true
     });
     const win = dom.window;
+
+    win.document.fonts = {
+        check: () => true,
+        load: async () => []
+    };
 
     // Platform mocks for headless Node.js environment
     win.matchMedia = win.matchMedia || function (query) {
@@ -68,7 +79,6 @@ function createRenderEnvironment() {
     };
 
     // Load vendor libraries and render.js in strict dependency order from web root
-    const webDir = path.resolve(__dirname, '..');
 
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it.min.js'), 'utf8'));
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdownItAnchor.umd.js'), 'utf8'));
@@ -167,6 +177,10 @@ describe('render.js Native Node.js Test Suite', () => {
         it('compiles katex mathematical equations', () => {
             const katexEl = env.doc.querySelector('#content .katex');
             assert.ok(katexEl !== null);
+            const katexHtml = env.doc.querySelector('#content .katex-html');
+            assert.ok(katexHtml !== null);
+            assert.equal(typeof env.win.katex, 'object');
+            assert.ok(katexEl.textContent.includes('E') && katexEl.textContent.includes('mc'));
         });
 
         it('highlights fenced syntax code blocks via highlight.js', () => {
@@ -541,6 +555,23 @@ describe('render.js Native Node.js Test Suite', () => {
             assert.equal(env.win.Markd.scrollToHeading, env.win.scrollToHeading);
             assert.equal(env.win.Markd.modal.open, env.win.openFullView);
             assert.equal(env.win.Markd.modal.close, env.win.closeFullView);
+        });
+    });
+
+    describe('Obsidian Theme CSS Custom Properties', () => {
+        let env;
+        beforeEach(() => {
+            env = createRenderEnvironment();
+        });
+
+        it('applies obsidian theme link color variable in live DOM', () => {
+            const linkColor = env.win.getComputedStyle(env.doc.documentElement).getPropertyValue('--link').trim();
+            assert.equal(linkColor, '#58a6ff');
+        });
+
+        it('applies obsidian theme task-check color variable in live DOM', () => {
+            const taskColor = env.win.getComputedStyle(env.doc.documentElement).getPropertyValue('--task-check').trim();
+            assert.equal(taskColor, '#3fb950');
         });
     });
 });

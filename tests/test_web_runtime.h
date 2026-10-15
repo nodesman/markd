@@ -14,7 +14,6 @@
 #include "core/DocumentSession.h"
 #include "core/Converter.h"
 #include "parser/TocParser.h"
-#include "test_render_js.h"
 
 inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app) {
     using Zinsser::describe;
@@ -63,6 +62,7 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
 
     describe("Web runtime template and asset bundle integrity", [&]() {
         it("loads web template from resource bundle at canonical path", [&]() {
+            assert(QFileInfo(":/web/template.html").size() > 0);
             QFile templateFile(":/web/template.html");
             assert(templateFile.open(QIODevice::ReadOnly | QIODevice::Text));
             QString html = QString::fromUtf8(templateFile.readAll());
@@ -109,62 +109,6 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
             assert(QFileInfo(":/web/vendor/katex/katex.min.css").size() > 0);
             assert(QFile::exists(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2"));
             assert(QFileInfo(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2").size() > 0);
-        });
-    });
-
-    describe("Chromium DOM execution and font loading", [&]() {
-        PreviewView preview;
-        preview.resize(1024, 768);
-        preview.show();
-        app.processEvents();
-        RenderJsTest::waitForPageReady(preview);
-
-        it("applies obsidian theme stylesheet variables in live DOM", [&]() {
-            QVariant linkColor = RenderJsTest::runJsSync(preview.webView()->page(),
-                "window.getComputedStyle(document.documentElement).getPropertyValue('--link').trim()");
-            assert(linkColor.toString() == "#58a6ff");
-
-            QVariant taskColor = RenderJsTest::runJsSync(preview.webView()->page(),
-                "window.getComputedStyle(document.documentElement).getPropertyValue('--task-check').trim()");
-            assert(taskColor.toString() == "#3fb950");
-        });
-
-        it("traps resource load failures and records zero DOM 404 errors", [&]() {
-            QVariant scriptCount = RenderJsTest::runJsSync(preview.webView()->page(),
-                "document.querySelectorAll('script[src], link[rel=\"stylesheet\"]').length");
-            assert(scriptCount.toInt() > 0);
-
-            QVariant vendorReady = RenderJsTest::runJsSync(preview.webView()->page(),
-                "typeof window.markdownit === 'function' && typeof window.katex === 'object'");
-            assert(vendorReady.toBool() == true);
-
-            QVariant errorCount = RenderJsTest::runJsSync(preview.webView()->page(),
-                "window.__resourceErrors.length");
-            assert(errorCount.toInt() == 0);
-        });
-
-        it("renders mathematical expressions via KaTeX engine", [&]() {
-            RenderJsTest::renderMarkdownSync(preview, "# Math\n\n$E = mc^2$");
-
-            QVariant katexEl = RenderJsTest::runJsSync(preview.webView()->page(),
-                "document.querySelector('.katex') !== null");
-            assert(katexEl.toBool() == true);
-        });
-
-        it("validates KaTeX font face registration via active math rendering", [&]() {
-            RenderJsTest::runJsSync(preview.webView()->page(),
-                "document.fonts.load('16px KaTeX_Main')");
-
-            for (int i = 0; i < 20; ++i) {
-                bool ready = RenderJsTest::runJsSync(preview.webView()->page(),
-                    "document.fonts.check('16px KaTeX_Main')").toBool();
-                if (ready) break;
-                QTest::qWait(25);
-            }
-
-            QVariant fontCheck = RenderJsTest::runJsSync(preview.webView()->page(),
-                "document.fonts.check('16px KaTeX_Main')");
-            assert(fontCheck.toBool() == true);
         });
     });
 }

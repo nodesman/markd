@@ -45,6 +45,8 @@ PreviewView::PreviewView(QWidget* parent)
             QString md = m_pendingMarkdown;
             m_pendingMarkdown.clear();
             setMarkdown(md);
+        } else if (!m_currentMarkdown.isEmpty()) {
+            emit m_bridge->renderDocument(m_currentMarkdown, QJsonObject());
         }
     });
 
@@ -123,8 +125,6 @@ void PreviewView::setMarkdown(const QString& markdown)
         return;
     }
 
-    m_currentMarkdown = markdown;
-
     if (m_session && m_session->markdown() != markdown) {
         m_session->setMarkdown(markdown);
     }
@@ -133,6 +133,8 @@ void PreviewView::setMarkdown(const QString& markdown)
         m_pendingMarkdown = markdown;
         return;
     }
+
+    m_currentMarkdown = markdown;
 
     // Pure typed domain semantic action dispatch (zero DOM leakage, zero runJavaScript)
     emit m_bridge->renderDocument(markdown, QJsonObject());

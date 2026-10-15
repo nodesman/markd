@@ -20,11 +20,11 @@ tasks:
     cmds:
       - cmake --build {{.BUILD_DIR}} -j8
 
-  test:
-    desc: Run CTest test suite
+  test-cpp:
+    desc: Run C++ test suite (pure C++, headless)
     deps: [build]
     cmds:
-      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure --verbose
+      - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
   test-web:
     desc: Run JavaScript test suite with Node.js
@@ -32,11 +32,16 @@ tasks:
     cmds:
       - npm test
 
+  test:
+    desc: Run both decoupled test suites (C++ and Web)
+    cmds:
+      - task: test-cpp
+      - task: test-web
+
   test-all:
-    desc: Run both C++ CTest and JavaScript test suites
+    desc: Alias for test
     cmds:
       - task: test
-      - task: test-web
 
 
   run:

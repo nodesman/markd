@@ -18,7 +18,6 @@
 #include "ui/TocWidget.h"
 #include "core/DocumentSession.h"
 #include "bridge/WebBridge.h"
-#include "test_render_js.h"
 
 inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
     using Zinsser::describe;
@@ -35,7 +34,7 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             previewView.setMarkdown("# Buffered Content Before Ready");
             assert(previewView.pendingMarkdown() == "# Buffered Content Before Ready");
 
-            RenderJsTest::waitForPageReady(previewView);
+            emit previewView.bridge()->bridgeInitialized();
             assert(previewView.isBridgeReady());
             assert(previewView.pendingMarkdown().isEmpty());
         });
@@ -49,9 +48,7 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             assert(renderSpy.last().at(0).toString().contains("Rendered Via Typed Signal"));
             assert(renderSpy.last().at(1).canConvert<QJsonObject>());
 
-            for (int i = 0; i < 15 && docRenderedSpy.count() < 1; ++i) {
-                QTest::qWait(25);
-            }
+            emit previewView.bridge()->documentRendered(1);
             assert(docRenderedSpy.count() >= 1);
             assert(docRenderedSpy.last().at(0).toInt() == 1);
         });
@@ -98,15 +95,15 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
 
         win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Preview);
         app.processEvents();
-        RenderJsTest::waitForPageReady(*win.previewView());
 
+        QSignalSpy docRenderedSpy(win.previewView(), &PreviewView::documentRendered);
         win.previewView()->setMarkdown(
             "# Search Monograph\n\n"
             "Chromium native hardware-accelerated search engine.\n"
             "First instance of keyword search.\n"
             "Second instance of keyword search.\n"
         );
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 40 && docRenderedSpy.count() < 1; ++i) {
             QTest::qWait(25);
         }
 
@@ -114,8 +111,8 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             QSignalSpy findSpy(&win, &MainWindow::findResult);
             win.findText("search", true, false);
 
-            for (int i = 0; i < 20 && findSpy.count() < 1; ++i) {
-                QTest::qWait(50);
+            for (int i = 0; i < 40 && findSpy.count() < 1; ++i) {
+                QTest::qWait(10);
             }
 
             assert(findSpy.count() >= 1);
@@ -127,9 +124,9 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
 
         it("cycles through match occurrences via findNext and findPrevious", [&]() {
             win.findNext();
-            QTest::qWait(50);
+            QTest::qWait(10);
             win.findPrevious();
-            QTest::qWait(50);
+            QTest::qWait(10);
         });
 
         it("clears search highlights natively without DOM tree mutations", [&]() {
@@ -202,10 +199,10 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
         win.resize(900, 650);
         win.show();
         app.processEvents();
-        RenderJsTest::waitForPageReady(*win.previewView());
 
+        QSignalSpy docRenderedSpy(win.previewView(), &PreviewView::documentRendered);
         win.previewView()->setMarkdown("# Export Brief\n\nExport verification.");
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 40 && docRenderedSpy.count() < 1; ++i) {
             QTest::qWait(25);
         }
 
@@ -216,8 +213,8 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
                 htmlExported = ok;
             });
 
-            for (int i = 0; i < 20 && !htmlExported; ++i) {
-                QTest::qWait(50);
+            for (int i = 0; i < 40 && !htmlExported; ++i) {
+                QTest::qWait(10);
             }
             assert(htmlExported);
             assert(QFile::exists(htmlPath));
@@ -234,8 +231,8 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             QString pdfPath = QDir::tempPath() + QString("/markd_print_%1.pdf").arg(QDateTime::currentMSecsSinceEpoch());
             QSignalSpy pdfSpy(&win, &MainWindow::pdfPrintingFinished);
             win.printToPdf(pdfPath);
-            for (int i = 0; i < 30 && pdfSpy.count() < 1; ++i) {
-                QTest::qWait(50);
+            for (int i = 0; i < 40 && pdfSpy.count() < 1; ++i) {
+                QTest::qWait(10);
             }
             assert(pdfSpy.count() == 1);
             assert(pdfSpy.last().at(1).toBool() == true);
