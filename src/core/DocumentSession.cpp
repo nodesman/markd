@@ -310,22 +310,22 @@ void DocumentSession::onWatcherTimeout() {
     // Disk changed externally
     if (m_isDirty) {
         emit diskConflictDetected();
-    } else {
-        m_markdown = diskContent;
-        m_lastKnownDiskContent = diskContent;
-        m_isDirty = false;
-        m_tocDebounceTimer->stop();
-        m_telemetryDebounceTimer->stop();
-        auto headings = TocParser::extractHeadings(m_markdown);
-
-        updateTelemetry();
-
-
-        emit markdownChanged(m_markdown);
-        emit dirtyChanged(false);
-        emit tocChanged(headings);
-        emit diskReloaded();
+        return;
     }
+
+    m_markdown = diskContent;
+    m_lastKnownDiskContent = diskContent;
+    m_isDirty = false;
+    m_tocDebounceTimer->stop();
+    m_telemetryDebounceTimer->stop();
+    auto headings = TocParser::extractHeadings(m_markdown);
+
+    updateTelemetry();
+
+    emit diskReloaded();
+    emit markdownChanged(m_markdown);
+    emit dirtyChanged(false);
+    emit tocChanged(headings);
 }
 
 void DocumentSession::updateTelemetry() {

@@ -87,6 +87,8 @@ private slots:
     void onSplitterMoved(int pos, int index);
     void onHeadingActivated(const QString& id);
     void onFindResult(int activeMatch, int totalMatches);
+    void onDiskConflictDetected();
+    void onDiskReloaded();
 
 private:
     void setupUI();
@@ -98,6 +100,7 @@ private:
     void syncEditorToPreview();
     QString determineTargetHeading() const;
     qreal determineScrollRatio(const QString& targetHeadingId) const;
+    void reloadEditorBuffer(const QString& md);
 
     DocumentSession* m_session = nullptr;
     HeaderBar* m_headerBar = nullptr;
@@ -115,4 +118,5 @@ private:
     bool m_collapsed = false;
     QString m_lastFindText;
     bool m_lastFindCaseSensitive = false;
+    bool m_isDiskReloading = false;
 };

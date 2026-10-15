@@ -22,6 +22,7 @@
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --single-process");
     MarkdApplication app(argc, argv);
 
     testCommandLineOptions();

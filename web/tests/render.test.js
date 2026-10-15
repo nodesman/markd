@@ -1747,6 +1747,24 @@ describe('render.js Native Node.js Test Suite', () => {
 
             env.win.closeFullView();
         });
+
+        it('handles session markdownChanged fallback when markdBridge renderDocument is absent', async () => {
+            const env = createRenderEnvironment();
+            env.win.markdBridge = null;
+
+            await env.win.renderMarkdown('# Initial Baseline');
+
+            let calledRender = false;
+            const origRender = env.win.renderMarkdown;
+            env.win.renderMarkdown = () => { calledRender = true; };
+
+            env.win.handleSessionMarkdownChanged('# Initial Baseline');
+            assert.equal(calledRender, false);
+
+            env.win.handleSessionMarkdownChanged('# Distinct Content');
+            assert.equal(calledRender, true);
+            env.win.renderMarkdown = origRender;
+        });
     });
 });
 

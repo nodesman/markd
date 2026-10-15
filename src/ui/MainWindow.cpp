@@ -10,6 +10,7 @@
 #include <QMimeData>
 #include <QApplication>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
@@ -155,6 +156,10 @@ void MainWindow::setupUI()
 
     // Reactive observation of DocumentSession
     connect(m_session, &DocumentSession::markdownChanged, this, [this](const QString& md) {
+        if (m_isDiskReloading) {
+            m_isDiskReloading = false;
+            return;
+        }
         if (m_editor && m_editor->toPlainText() != md) {
             m_editor->setPlainText(md);
         }
@@ -167,6 +172,8 @@ void MainWindow::setupUI()
 
     connect(m_session, &DocumentSession::filePathChanged, this, &MainWindow::updateWindowTitle);
     connect(m_session, &DocumentSession::dirtyChanged, this, &MainWindow::updateWindowTitle);
+    connect(m_session, &DocumentSession::diskConflictDetected, this, &MainWindow::onDiskConflictDetected);
+    connect(m_session, &DocumentSession::diskReloaded, this, &MainWindow::onDiskReloaded);
 
     connect(m_session, &DocumentSession::tocChanged, this, [this](const std::vector<TocItem>& headings) {
         if (m_tocWidget) {
@@ -825,4 +832,40 @@ void MainWindow::onExportHtml()
 void MainWindow::onCopyHtml()
 {
     copyHtmlToClipboard();
+}
+
+void MainWindow::onDiskConflictDetected()
+{
+    if (!m_statusBar) return;
+    m_statusBar->showNotification(
+        tr("Disk file changed externally; unsaved edits preserved"),
+        QStringLiteral("warning"),
+        3000
+    );
+}
+
+void MainWindow::reloadEditorBuffer(const QString& md)
+{
+    if (!m_editor) return;
+    const int scrollPosition = m_editor->verticalScrollBar()->value();
+    const int cursorPosition = m_editor->textCursor().position();
+    {
+        const QSignalBlocker blocker(m_editor);
+        m_editor->setPlainText(md);
+        QTextCursor cursor = m_editor->textCursor();
+        cursor.setPosition(std::min(cursorPosition, static_cast<int>(md.length())));
+        m_editor->setTextCursor(cursor);
+    }
+    m_editor->verticalScrollBar()->setValue(scrollPosition);
+}
+
+void MainWindow::onDiskReloaded()
+{
+    if (!m_session) return;
+    m_isDiskReloading = true;
+    const QString& md = m_session->markdown();
+    reloadEditorBuffer(md);
+    if (m_previewView) {
+        m_previewView->setMarkdown(md, /*preserveScroll=*/true);
+    }
 }

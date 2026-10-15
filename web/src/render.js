@@ -33,6 +33,16 @@ function queueOrRenderDocument(markdown, options) {
 }
 window.renderDocument = queueOrRenderDocument;
 
+function handleSessionMarkdownChanged(newMarkdown) {
+    if (window.markdBridge && window.markdBridge.renderDocument) {
+        return;
+    }
+    if (newMarkdown === currentRenderedMarkdown) {
+        return;
+    }
+    renderMarkdown(newMarkdown);
+}
+
 function initQWebChannel() {
     if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined' && qt.webChannelTransport) {
         new QWebChannel(qt.webChannelTransport, function(channel) {
@@ -89,9 +99,7 @@ function initQWebChannel() {
             if (window.session) {
                 if (window.session.markdownChanged && typeof window.session.markdownChanged.connect === 'function') {
                     window.session.markdownChanged.connect(function(newMarkdown) {
-                        if (typeof renderMarkdown === 'function') {
-                            renderMarkdown(newMarkdown);
-                        }
+                        handleSessionMarkdownChanged(newMarkdown);
                     });
                 }
                 if (window.session.selectedHeadingChanged && typeof window.session.selectedHeadingChanged.connect === 'function') {
@@ -839,6 +847,7 @@ window.closeFullView = closeFullView;
 window.setupScrollSpy = setupScrollSpy;
 window.wrapMermaidDiagrams = wrapMermaidDiagrams;
 window.wrapTables = wrapTables;
+window.handleSessionMarkdownChanged = handleSessionMarkdownChanged;
 
 // Signal engine readiness once DOM is fully prepared
 if (document.readyState === 'loading') {
