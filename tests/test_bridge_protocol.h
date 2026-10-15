@@ -1,3 +1,4 @@
+#include <QTextBlock>
 #pragma once
 
 #include <QSignalSpy>
@@ -301,6 +302,87 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             assert(QFile::exists(pdfPath));
             assert(QFileInfo(pdfPath).size() > 0);
             QFile::remove(pdfPath);
+        });
+    });
+
+    describe("Task 12 Bidirectional QWebChannel Bridge and Downstream Hooks", [&]() {
+        PreviewView view;
+        view.resize(800, 600);
+        view.show();
+        app.processEvents();
+
+        it("dispatches renderDocument with preserveScroll option in PreviewView", [&]() {
+            QSignalSpy renderSpy(view.bridge(), &WebBridge::renderDocument);
+            emit view.bridge()->bridgeInitialized();
+            view.setMarkdown("# Hot Reload Payload", /*preserveScroll=*/true);
+            assert(renderSpy.count() >= 1);
+            QJsonObject opts = renderSpy.last().at(1).toJsonObject();
+            assert(opts.value("preserveScroll").toBool() == true);
+        });
+
+        it("emits scrollToRatio downlink signal across WebBridge", [&]() {
+            QSignalSpy ratioSpy(view.bridge(), &WebBridge::scrollToRatio);
+            emit view.bridge()->bridgeInitialized();
+            view.scrollToRatio(0.75);
+            assert(ratioSpy.count() == 1);
+            assert(std::abs(ratioSpy.last().at(0).toReal() - 0.75) < 0.001);
+        });
+
+        it("buffers pending options before bridgeReady resolves", [&]() {
+            PreviewView unreadyView;
+            QJsonObject customOpts;
+            customOpts["targetHeading"] = "intro-section";
+            unreadyView.setMarkdown("# Pending", customOpts);
+            assert(!unreadyView.isBridgeReady());
+
+            QSignalSpy renderSpy(unreadyView.bridge(), &WebBridge::renderDocument);
+            emit unreadyView.bridge()->bridgeInitialized();
+            assert(unreadyView.isBridgeReady());
+            assert(renderSpy.count() >= 1);
+            assert(renderSpy.last().at(1).toJsonObject().value("targetHeading").toString() == "intro-section");
+        });
+
+        it("dispatches clipboardCopyRequested from DocumentSession copyToClipboard slot", [&]() {
+            DocumentSession session;
+            QSignalSpy clipSpy(&session, &DocumentSession::clipboardCopyRequested);
+            session.copyToClipboard("print('hello world')");
+            assert(clipSpy.count() == 1);
+            assert(clipSpy.last().at(0).toString() == "print('hello world')");
+        });
+
+        it("synchronizes scroll coordinates across mode switching in MainWindow", [&]() {
+            MainWindow win;
+            win.resize(1000, 650);
+            win.show();
+            app.processEvents();
+
+            win.editor()->setPlainText(QStringLiteral("# Intro\n\nLine 1\nLine 2\n\n## Section Two\n\nContent line\n"));
+            win.updateToc();
+            assert(win.tocWidget()->headingCount() == 2);
+
+            // Position editor cursor at section two
+            QTextCursor cursor = win.editor()->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            win.editor()->setTextCursor(cursor);
+
+            emit win.previewView()->bridge()->bridgeInitialized();
+
+            // Case A: Markdown is already rendered in preview -> out-of-band navigateToHeading
+            QSignalSpy navSpy(win.previewView()->bridge(), &WebBridge::navigateToHeading);
+            win.setMode(MainWindow::Mode::Preview);
+            app.processEvents();
+
+            assert(navSpy.count() >= 1);
+            assert(navSpy.last().at(0).toString() == "section-two");
+
+            // Case B: Switch back to edit mode with active heading from preview
+            emit win.previewView()->activeHeadingChanged("section-two");
+            app.processEvents();
+
+            win.setMode(MainWindow::Mode::Edit);
+            app.processEvents();
+
+            assert(win.editor()->textCursor().block().text().contains("Section Two"));
         });
     });
 }

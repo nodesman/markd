@@ -90,7 +90,14 @@ private slots:
 
 private:
     void setupUI();
+    void setupClipboardBridge();
     void updateWindowTitle();
+    void switchToEditMode();
+    void switchToPreviewMode();
+    void syncPreviewToEditor();
+    void syncEditorToPreview();
+    QString determineTargetHeading() const;
+    qreal determineScrollRatio(const QString& targetHeadingId) const;
 
     DocumentSession* m_session = nullptr;
     HeaderBar* m_headerBar = nullptr;

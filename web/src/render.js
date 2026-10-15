@@ -67,6 +67,13 @@ function initQWebChannel() {
                         syncMermaidTheme(themeName);
                     });
                 }
+                if (window.markdBridge.scrollToRatio && typeof window.markdBridge.scrollToRatio.connect === 'function') {
+                    window.markdBridge.scrollToRatio.connect(function(ratio) {
+                        if (typeof scrollToRatio === 'function') {
+                            scrollToRatio(ratio);
+                        }
+                    });
+                }
 
                 // Flush signals buffered before QWebChannel initialization completed
                 while (pendingRenderSignals.length > 0) {
@@ -279,6 +286,7 @@ async function executeRenderMarkdown(markdownText, options) {
     cleanupDiagramListeners();
 
     const contentEl = document.getElementById('content');
+    var prevScrollY = window.scrollY || 0;
 
     // 1. Parse markdown to HTML
     var html = md.render(markdownText);
@@ -358,8 +366,8 @@ async function executeRenderMarkdown(markdownText, options) {
         window.markdBridge.onDocumentRendered(headings.length);
     }
 
-    // Scroll to top for new document
-    window.scrollTo(0, 0);
+    // Resolve post-render scroll position (Task 12 Bidirectional Bridge)
+    resolvePostRenderScroll(options, prevScrollY);
 }
 
 // ---- Scroll spy ----
@@ -422,6 +430,29 @@ function scrollToHeading(id) {
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+}
+
+function scrollToRatio(ratio) {
+    if (typeof ratio !== 'number' || isNaN(ratio)) return;
+    var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    var clampedRatio = Math.max(0, Math.min(1, ratio));
+    window.scrollTo({ top: clampedRatio * maxScroll, behavior: 'smooth' });
+}
+
+function resolvePostRenderScroll(options, prevScrollY) {
+    if (options && options.preserveScroll === true) {
+        window.scrollTo(0, prevScrollY);
+        return;
+    }
+    if (options && options.targetHeading) {
+        scrollToHeading(options.targetHeading);
+        return;
+    }
+    if (options && typeof options.scrollRatio === 'number') {
+        scrollToRatio(options.scrollRatio);
+        return;
+    }
+    window.scrollTo(0, 0);
 }
 
 // ---- Expandable containers ----
@@ -688,6 +719,7 @@ function openFullView(contentNode, isDiagram) {
         }
         if (e.key === 'Tab') {
             var focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (focusable.length === 0) return;
             var first = focusable[0];
             var last = focusable[focusable.length - 1];
             if (e.shiftKey) {
@@ -785,6 +817,7 @@ window.Markd = {
     isReady: false,
     render: renderMarkdown,
     scrollToHeading: scrollToHeading,
+    scrollToRatio: scrollToRatio,
     modal: {
         open: openFullView,
         close: closeFullView
@@ -800,6 +833,7 @@ window.Markd = {
 // Backward-compatibility aliases on global window
 window.renderMarkdown = renderMarkdown;
 window.scrollToHeading = scrollToHeading;
+window.scrollToRatio = scrollToRatio;
 window.openFullView = openFullView;
 window.closeFullView = closeFullView;
 window.setupScrollSpy = setupScrollSpy;

@@ -9,6 +9,7 @@
 #include <QClipboard>
 #include <QMimeData>
 #include <QApplication>
+#include <QScrollBar>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
@@ -193,6 +194,8 @@ void MainWindow::setupUI()
             m_session->setMarkdown(m_editor->toPlainText());
         }
     });
+
+    setupClipboardBridge();
 
     // Apply native platform window hooks (Cocoa style masks, full size content view)
     PlatformFrame::setupWindow(this);
@@ -533,6 +536,17 @@ void MainWindow::setMode(Mode mode)
     }
 }
 
+void MainWindow::setupClipboardBridge()
+{
+    if (!m_session) return;
+    connect(m_session, &DocumentSession::clipboardCopyRequested, this, [this](const QString& text) {
+        QApplication::clipboard()->setText(text);
+        if (m_statusBar) {
+            m_statusBar->showNotification(tr("Copied to clipboard"), QStringLiteral("info"), 1500);
+        }
+    });
+}
+
 void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 {
     if (!m_viewportStack) return;
@@ -543,17 +557,96 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
     }
 
     if (mode == ModeSwitcher::DocumentMode::Edit) {
-        m_viewportStack->setCurrentIndex(0);
-        if (m_editor) {
-            activateWindow();
-            m_editor->setFocus(Qt::OtherFocusReason);
-        }
-    } else {
-        m_viewportStack->setCurrentIndex(1);
-        if (m_previewView && m_session) {
-            m_previewView->setMarkdown(m_session->markdown());
-        }
+        switchToEditMode();
+        return;
     }
+
+    switchToPreviewMode();
+}
+
+void MainWindow::switchToEditMode()
+{
+    m_viewportStack->setCurrentIndex(0);
+    if (!m_editor) return;
+    activateWindow();
+    m_editor->setFocus(Qt::OtherFocusReason);
+    syncPreviewToEditor();
+}
+
+void MainWindow::syncPreviewToEditor()
+{
+    if (!m_session || !m_tocWidget || !m_editor) return;
+    QString activeId = m_session->activeHeading();
+    if (activeId.isEmpty()) return;
+
+    const auto& headings = m_tocWidget->headings();
+    auto it = std::find_if(headings.begin(), headings.end(), [&activeId](const TocItem& item) {
+        return item.id == activeId;
+    });
+    if (it == headings.end()) return;
+
+    QTextDocument* doc = m_editor->document();
+    if (!doc) return;
+    QTextBlock block = doc->findBlockByLineNumber(it->lineNumber - 1);
+    if (!block.isValid()) return;
+
+    QTextCursor cursor(block);
+    m_editor->setTextCursor(cursor);
+    m_editor->centerCursor();
+}
+
+void MainWindow::switchToPreviewMode()
+{
+    m_viewportStack->setCurrentIndex(1);
+    if (!m_previewView || !m_session) return;
+    syncEditorToPreview();
+}
+
+void MainWindow::syncEditorToPreview()
+{
+    QString targetHeadingId = determineTargetHeading();
+    qreal scrollRatio = determineScrollRatio(targetHeadingId);
+
+    QJsonObject renderOpts;
+    if (!targetHeadingId.isEmpty()) {
+        renderOpts[QStringLiteral("targetHeading")] = targetHeadingId;
+    }
+    if (targetHeadingId.isEmpty() && scrollRatio > 0.0) {
+        renderOpts[QStringLiteral("scrollRatio")] = scrollRatio;
+    }
+
+    if (m_previewView->currentMarkdown() != m_session->markdown()) {
+        m_previewView->setMarkdown(m_session->markdown(), renderOpts);
+        return;
+    }
+    if (!targetHeadingId.isEmpty()) {
+        m_previewView->scrollToHeading(targetHeadingId);
+        return;
+    }
+    if (scrollRatio > 0.0) {
+        m_previewView->scrollToRatio(scrollRatio);
+    }
+}
+
+QString MainWindow::determineTargetHeading() const
+{
+    if (!m_editor || !m_tocWidget) return QString();
+    int currentLine = m_editor->textCursor().blockNumber() + 1;
+    const auto& headings = m_tocWidget->headings();
+    QString targetId;
+    for (const auto& item : headings) {
+        if (item.lineNumber > currentLine) break;
+        targetId = item.id;
+    }
+    return targetId;
+}
+
+qreal MainWindow::determineScrollRatio(const QString& targetHeadingId) const
+{
+    if (!targetHeadingId.isEmpty() || !m_editor) return 0.0;
+    QScrollBar* bar = m_editor->verticalScrollBar();
+    if (!bar || bar->maximum() <= 0) return 0.0;
+    return static_cast<qreal>(bar->value()) / bar->maximum();
 }
 
 void MainWindow::changeEvent(QEvent* event)

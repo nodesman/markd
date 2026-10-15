@@ -43,9 +43,13 @@ PreviewView::PreviewView(QWidget* parent)
         }
         if (!m_pendingMarkdown.isEmpty()) {
             QString md = m_pendingMarkdown;
+            QJsonObject opts = m_pendingOptions;
             m_pendingMarkdown.clear();
-            setMarkdown(md);
-        } else if (!m_currentMarkdown.isEmpty()) {
+            m_pendingOptions = QJsonObject();
+            setMarkdown(md, opts);
+            return;
+        }
+        if (!m_currentMarkdown.isEmpty()) {
             emit m_bridge->renderDocument(m_currentMarkdown, QJsonObject());
         }
     });
@@ -121,7 +125,21 @@ void PreviewView::setSession(DocumentSession* session)
 
 void PreviewView::setMarkdown(const QString& markdown)
 {
-    if (m_bridgeReady && m_currentMarkdown == markdown) {
+    setMarkdown(markdown, QJsonObject());
+}
+
+void PreviewView::setMarkdown(const QString& markdown, bool preserveScroll)
+{
+    QJsonObject opts;
+    if (preserveScroll) {
+        opts[QStringLiteral("preserveScroll")] = true;
+    }
+    setMarkdown(markdown, opts);
+}
+
+void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& options)
+{
+    if (m_bridgeReady && m_currentMarkdown == markdown && options.isEmpty()) {
         return;
     }
 
@@ -131,13 +149,21 @@ void PreviewView::setMarkdown(const QString& markdown)
 
     if (!m_bridgeReady) {
         m_pendingMarkdown = markdown;
+        m_pendingOptions = options;
         return;
     }
 
     m_currentMarkdown = markdown;
 
     // Pure typed domain semantic action dispatch (zero DOM leakage, zero runJavaScript)
-    emit m_bridge->renderDocument(markdown, QJsonObject());
+    emit m_bridge->renderDocument(markdown, options);
+}
+
+void PreviewView::scrollToRatio(qreal ratio)
+{
+    if (m_bridgeReady) {
+        emit m_bridge->scrollToRatio(ratio);
+    }
 }
 
 void PreviewView::scrollToHeading(const QString& id)

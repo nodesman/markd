@@ -336,3 +336,7 @@ void DocumentSession::updateTelemetry() {
     emit metricsReported(m_wordCount, m_readingTimeMinutes);
 }
 
+void DocumentSession::copyToClipboard(const QString& text) {
+    emit clipboardCopyRequested(text);
+}
+

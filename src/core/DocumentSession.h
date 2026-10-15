@@ -66,8 +66,10 @@ public slots:
     Q_INVOKABLE void resetZoom();
     Q_INVOKABLE void flushOutline();
     Q_INVOKABLE void flushTelemetry();
+    Q_INVOKABLE void copyToClipboard(const QString& text);
 
 signals:
+    void clipboardCopyRequested(const QString& text);
     void markdownChanged(const QString& markdown);
     void selectedHeadingChanged(const QString& selectedHeading);
     void activeHeadingChanged(const QString& activeHeading);

@@ -1638,5 +1638,115 @@ describe('render.js Native Node.js Test Suite', () => {
             });
         });
     });
+
+    describe('Cross-Mode Scroll and Downstream Hook Contract', () => {
+        it('restores window scroll coordinate when preserveScroll option is enabled', async () => {
+            const env = createRenderEnvironment();
+            let dispatchedScroll = null;
+            env.win.scrollTo = (x, y) => { dispatchedScroll = { x, y }; };
+            env.win.scrollY = 380;
+
+            await env.win.renderMarkdown('# Header\n\nExternal disk reload content.', { preserveScroll: true });
+
+            assert.ok(dispatchedScroll !== null);
+            assert.equal(dispatchedScroll.y, 380);
+        });
+
+        it('navigates to targetHeading option when provided in renderDocument options', async () => {
+            const env = createRenderEnvironment();
+            let targetScrolledElement = null;
+            env.win.Element.prototype.scrollIntoView = function() { targetScrolledElement = this.id; };
+
+            await env.win.renderMarkdown('# Top\n\nText\n\n## Target Section\n\nTarget content', {
+                targetHeading: 'target-section'
+            });
+
+            assert.equal(targetScrolledElement, 'target-section');
+        });
+
+        it('scrolls to proportional coordinate when scrollToRatio option is supplied', async () => {
+            const env = createRenderEnvironment();
+            let dispatchedScroll = null;
+            env.win.scrollTo = (opts) => { dispatchedScroll = opts; };
+
+            await env.win.renderMarkdown('# Header\n\nProportional test.', { scrollRatio: 0.5 });
+
+            assert.ok(dispatchedScroll !== null);
+            assert.equal(typeof dispatchedScroll.top, 'number');
+            assert.equal(dispatchedScroll.behavior, 'smooth');
+        });
+
+        it('handles scrollToRatio invalid inputs and boundary clamping', async () => {
+            const env = createRenderEnvironment();
+            let dispatchedScroll = null;
+            env.win.scrollTo = (opts) => { dispatchedScroll = opts; };
+
+            // Invalid non-number or NaN
+            env.win.scrollToRatio('invalid');
+            assert.equal(dispatchedScroll, null);
+            env.win.scrollToRatio(NaN);
+            assert.equal(dispatchedScroll, null);
+
+            // Clamping below 0 and above 1
+            env.win.scrollToRatio(-0.5);
+            assert.equal(dispatchedScroll.top, 0);
+
+            env.win.scrollToRatio(1.5);
+            assert.ok(dispatchedScroll.top >= 0);
+        });
+
+        it('connects scrollToRatio downlink from markdBridge in initQWebChannel', () => {
+            const env = createRenderEnvironment();
+            let connectedCallback = null;
+            let receivedRatio = null;
+            env.win.scrollToRatio = (r) => { receivedRatio = r; };
+
+            env.win.qt = {
+                webChannelTransport: {}
+            };
+            env.win.QWebChannel = function(transport, cb) {
+                const mockBridge = {
+                    logMessage: () => {},
+                    renderDocument: { connect: () => {} },
+                    navigateToHeading: { connect: () => {} },
+                    setTheme: { connect: () => {} },
+                    scrollToRatio: {
+                        connect: (fn) => { connectedCallback = fn; }
+                    },
+                    bridgeReady: () => {}
+                };
+                cb({
+                    objects: {
+                        markdBridge: mockBridge,
+                        session: {}
+                    }
+                });
+            };
+
+            env.win.initQWebChannel();
+            assert.ok(connectedCallback !== null);
+
+            connectedCallback(0.42);
+            assert.equal(receivedRatio, 0.42);
+        });
+
+        it('ignores Tab key events in modal overlay when no focusable elements exist', () => {
+            const env = createRenderEnvironment();
+            const div = env.doc.createElement('div');
+            div.textContent = 'Empty Modal Content';
+            env.win.openFullView(div, false);
+
+            const overlay = env.doc.querySelector('.fullview-overlay');
+            assert.ok(overlay !== null);
+
+            const focusables = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            focusables.forEach(f => f.remove());
+
+            const tabEvent = new env.win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
+            env.doc.dispatchEvent(tabEvent);
+
+            env.win.closeFullView();
+        });
+    });
 });
 

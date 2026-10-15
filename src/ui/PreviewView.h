@@ -28,6 +28,9 @@ public:
     QString currentMarkdown() const { return m_currentMarkdown; }
 
     void setMarkdown(const QString& markdown);
+    void setMarkdown(const QString& markdown, bool preserveScroll);
+    void setMarkdown(const QString& markdown, const QJsonObject& options);
+    void scrollToRatio(qreal ratio);
     void loadTemplate();
     void scrollToHeading(const QString& id);
     void setTheme(const QString& themeName);
@@ -56,6 +59,7 @@ private:
     bool m_pageLoaded = false;
     bool m_bridgeReady = false;
     QString m_pendingMarkdown;
+    QJsonObject m_pendingOptions;
     QString m_currentMarkdown;
     QString m_currentActiveHeading;
     QString m_lastFindText;

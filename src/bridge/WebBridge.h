@@ -25,6 +25,7 @@ signals:
     void renderDocument(const QString& markdown, const QJsonObject& options = QJsonObject());
     void navigateToHeading(const QString& headingId);
     void setTheme(const QString& themeName);
+    void scrollToRatio(qreal ratio);
 
     // Uplink Signals (Dispatched to C++ listeners)
     void bridgeInitialized();
