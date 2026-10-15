@@ -85,6 +85,36 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             emit win.tocWidget()->headingActivated("heading-two");
             assert(win.session()->selectedHeading() == "heading-two");
         });
+
+        it("invokes bridge legacy fallback slots and redundant render guards", [&]() {
+            QSignalSpy tocSpy(previewView.bridge(), &WebBridge::tocUpdated);
+            previewView.bridge()->updateTOC("[{\"id\":\"h1\",\"title\":\"H1\"}]");
+            assert(tocSpy.count() == 1);
+
+            QSignalSpy headingSpy(previewView.bridge(), &WebBridge::activeHeadingChanged);
+            previewView.bridge()->setActiveHeading("h1");
+            assert(headingSpy.count() == 1);
+            assert(headingSpy.last().at(0).toString() == "h1");
+
+            QSignalSpy redundantRenderSpy(previewView.bridge(), &WebBridge::renderDocument);
+            previewView.setMarkdown("# Rendered Via Typed Signal\n\nParagraph text.");
+            assert(redundantRenderSpy.count() == 0);
+        });
+
+        it("handles load failure, re-handshake rendering, and case-sensitive find queries in preview view", [&]() {
+            PreviewView view;
+            view.findText("", true, false);
+            view.findText("query", false, true);
+
+            emit view.webView()->loadFinished(false);
+            assert(!view.isBridgeReady());
+
+            view.setMarkdown("# Cached Markdown");
+            emit view.bridge()->bridgeInitialized();
+            assert(view.isBridgeReady());
+
+            emit view.bridge()->bridgeInitialized();
+        });
     });
 
     describe("Native Chromium search engine and match navigation", [&]() {
@@ -149,10 +179,42 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             win.findPrevious();
             assert(win.editor()->textCursor().hasSelection());
 
+            win.findText("Alpha", true, true);
+            assert(findSpy.last().at(0).toInt() == 1);
+            assert(findSpy.last().at(1).toInt() == 1);
+
+            win.findText("Alpha", true, false);
+            win.findText("", true, false);
+            assert(!win.editor()->textCursor().hasSelection());
+
             win.clearFind();
             assert(!win.editor()->textCursor().hasSelection());
             assert(findSpy.last().at(0).toInt() == 0);
             assert(findSpy.last().at(1).toInt() == 0);
+        });
+
+        it("toggles editor word wrap and zoom controls via menu handlers", [&]() {
+            assert(win.editor()->lineWrapMode() == QPlainTextEdit::WidgetWidth);
+            QAction* wrapAct = win.findChild<QAction*>("action_toggle_word_wrap");
+            assert(wrapAct != nullptr);
+            wrapAct->trigger();
+            assert(win.editor()->lineWrapMode() == QPlainTextEdit::NoWrap);
+            wrapAct->trigger();
+            assert(win.editor()->lineWrapMode() == QPlainTextEdit::WidgetWidth);
+
+            QAction* zoomInAct = win.findChild<QAction*>("action_zoom_in");
+            assert(zoomInAct != nullptr);
+            zoomInAct->trigger();
+            assert(win.session()->zoomFactor() > 1.0);
+
+            QAction* zoomOutAct = win.findChild<QAction*>("action_zoom_out");
+            assert(zoomOutAct != nullptr);
+            zoomOutAct->trigger();
+
+            QAction* actualSizeAct = win.findChild<QAction*>("action_actual_size");
+            assert(actualSizeAct != nullptr);
+            actualSizeAct->trigger();
+            assert(win.session()->zoomFactor() == 1.0);
         });
     });
 

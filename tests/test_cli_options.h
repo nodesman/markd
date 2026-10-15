@@ -67,5 +67,30 @@ inline void testCommandLineOptions() {
             assert(!opts.parseSuccess);
             assert(opts.errorMessage.contains("Unexpected positional argument"));
         });
+
+        it("handles completely empty argument lists without crash", [&]() {
+            CommandLineOptions opts = CommandLineOptions::parse({});
+            assert(opts.parseSuccess);
+            assert(!opts.showHelp);
+            assert(!opts.showVersion);
+            assert(!opts.hasFile);
+        });
+
+        it("flags version option under short flag (-v)", [&]() {
+            QStringList args = {"markd", "-v"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(opts.showVersion);
+        });
+
+        it("generates formatted help and version text strings", [&]() {
+            QString help = CommandLineOptions::helpText("markd");
+            assert(help.contains("Usage: markd [options] [file.md]"));
+            assert(help.contains("--help"));
+            assert(help.contains("--version"));
+
+            QString version = CommandLineOptions::versionText();
+            assert(version.contains("Markd version 1.0.0"));
+        });
     });
 }

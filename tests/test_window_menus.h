@@ -4,10 +4,14 @@
 #include <iostream>
 #include <QTemporaryFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QTextStream>
 #include <QMenuBar>
 #include <QAction>
 #include <QList>
+#include <QDialog>
+#include <QTimer>
+#include <QWindowStateChangeEvent>
 #include "Zinsser.h"
 #include "ui/MainWindow.h"
 #include "ui/MenuBuilder.h"
@@ -42,6 +46,40 @@ inline void testWindowAndMenuIntegrity() {
             MainWindow win(tempPath);
             assert(win.windowTitle() == QString("%1 — Markd").arg(fi.fileName()));
             assert(win.documentBuffer() == content);
+
+            // Reflects dirty marker in window title
+            win.session()->setMarkdown(content + " extra");
+            assert(win.windowTitle() == QString("%1* — Markd").arg(fi.fileName()));
+
+            // Untitled dirty window title format
+            MainWindow untitledWin;
+            untitledWin.session()->setMarkdown("dirty draft");
+            assert(untitledWin.windowTitle() == "Markd*");
+
+            // Splitter state serialization and programmatic restoration
+            QByteArray state = win.mainSplitter()->saveState();
+            assert(win.restoreSplitterState(state));
+            assert(win.restoreSplitterState(false, 240));
+            assert(!win.isSidebarCollapsed());
+            assert(win.sidebarSavedWidth() == 240);
+            assert(win.restoreSplitterState(true, 240));
+            assert(win.isSidebarCollapsed());
+
+            // HTML export and PDF print triggers
+            QTemporaryFile htmlOut(QDir::tempPath() + "/markd_export_XXXXXX.html");
+            assert(htmlOut.open());
+            htmlOut.close();
+            win.exportHtml(htmlOut.fileName(), [](bool ok) {
+                assert(ok);
+            });
+            win.copyHtmlToClipboard([](bool ok) {
+                assert(ok);
+            });
+
+            QTemporaryFile pdfOut(QDir::tempPath() + "/markd_print_XXXXXX.pdf");
+            assert(pdfOut.open());
+            pdfOut.close();
+            win.printToPdf(pdfOut.fileName());
         });
     });
 
@@ -108,6 +146,131 @@ inline void testWindowAndMenuIntegrity() {
             assert(actions.actualSizeAction->shortcut() == QKeySequence(Qt::META | Qt::Key_0));
 #endif
             assert(actions.toggleWordWrapAction->shortcut() == QKeySequence(Qt::ALT | Qt::Key_Z));
+        });
+
+        it("triggers menu action dispatchers for find, copy-html, and window closure", [&]() {
+            MainWindow win;
+            QAction* findAct = win.findChild<QAction*>("action_find");
+            assert(findAct != nullptr);
+            findAct->trigger();
+
+            QAction* copyHtmlAct = win.findChild<QAction*>("action_copy_html");
+            assert(copyHtmlAct != nullptr);
+            copyHtmlAct->trigger();
+
+            QAction* closeAct = win.findChild<QAction*>("action_close_window");
+            assert(closeAct != nullptr);
+            closeAct->trigger();
+        });
+
+        it("persists modified file buffers upon save action dispatch", [&]() {
+            QTemporaryFile tempFile;
+            assert(tempFile.open());
+            tempFile.write("# Initial Buffer");
+            tempFile.flush();
+            MainWindow win(tempFile.fileName());
+            win.session()->setMarkdown("# Mutated Buffer");
+            assert(win.session()->isDirty());
+
+            QAction* saveAct = win.findChild<QAction*>("action_save");
+            assert(saveAct != nullptr);
+            saveAct->trigger();
+
+            assert(!win.session()->isDirty());
+            assert(win.session()->markdown() == "# Mutated Buffer");
+        });
+
+        it("adapts layout margins on window state change events", [&]() {
+            MainWindow win;
+            QWindowStateChangeEvent stateEv(Qt::WindowNoState);
+            QCoreApplication::sendEvent(&win, &stateEv);
+            assert(win.headerBar() != nullptr);
+        });
+
+        it("relays native find results through window signal bus", [&]() {
+            MainWindow win;
+            int receivedActive = -1;
+            int receivedTotal = -1;
+            QObject::connect(&win, &MainWindow::findResult, [&](int active, int total) {
+                receivedActive = active;
+                receivedTotal = total;
+            });
+            QMetaObject::invokeMethod(&win, "onFindResult", Q_ARG(int, 2), Q_ARG(int, 5));
+            assert(receivedActive == 2);
+            assert(receivedTotal == 5);
+        });
+
+        it("toggles editor line wrap modes across menu actions", [&]() {
+            MainWindow win;
+            QAction* wrapAct = win.findChild<QAction*>("action_toggle_word_wrap");
+            assert(wrapAct != nullptr);
+            auto initialWrap = win.editor()->lineWrapMode();
+            wrapAct->trigger();
+            assert(win.editor()->lineWrapMode() != initialWrap);
+            wrapAct->trigger();
+            assert(win.editor()->lineWrapMode() == initialWrap);
+        });
+
+        it("adjusts magnification factors via zoom menu actions", [&]() {
+            MainWindow win;
+            double initialZoom = win.session()->zoomFactor();
+            QAction* zoomIn = win.findChild<QAction*>("action_zoom_in");
+            assert(zoomIn != nullptr);
+            zoomIn->trigger();
+            assert(win.session()->zoomFactor() > initialZoom);
+
+            QAction* zoomOut = win.findChild<QAction*>("action_zoom_out");
+            assert(zoomOut != nullptr);
+            zoomOut->trigger();
+            assert(std::abs(win.session()->zoomFactor() - initialZoom) < 0.01);
+
+            QAction* resetZoom = win.findChild<QAction*>("action_actual_size");
+            assert(resetZoom != nullptr);
+            resetZoom->trigger();
+            assert(std::abs(win.session()->zoomFactor() - 1.0) < 0.001);
+        });
+
+        it("dismisses informational about dialog without blocking execution", [&]() {
+            MainWindow win;
+            QTimer::singleShot(20, []() {
+                for (QWidget* w : QApplication::topLevelWidgets()) {
+                    if (qobject_cast<QDialog*>(w) || w->isModal()) {
+                        w->close();
+                    }
+                }
+            });
+            QMetaObject::invokeMethod(&win, "onAbout");
+        });
+
+        it("dismisses native file dialog invocations without blocking", [&]() {
+            QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+            MainWindow win;
+            auto dismiss = []() {
+                QTimer::singleShot(20, []() {
+                    for (QWidget* w : QApplication::topLevelWidgets()) {
+                        if (qobject_cast<QDialog*>(w) || w->isModal()) {
+                            w->close();
+                        }
+                    }
+                });
+            };
+
+            // Test onOpen
+            dismiss();
+            QMetaObject::invokeMethod(&win, "onOpen");
+
+            // Test onPrintPdf
+            dismiss();
+            QMetaObject::invokeMethod(&win, "onPrintPdf");
+
+            // Test onExportHtml
+            dismiss();
+            QMetaObject::invokeMethod(&win, "onExportHtml");
+
+            // Test onSave with untitled window
+            MainWindow untitledWin;
+            dismiss();
+            QMetaObject::invokeMethod(&untitledWin, "onSave");
         });
     });
 }

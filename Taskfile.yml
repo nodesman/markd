@@ -38,6 +38,21 @@ tasks:
     cmds:
       - npm run test:coverage
 
+  coverage-cpp:
+    desc: Run C++ test suite and enforce >= 95% line coverage via LLVM source instrumentation
+    cmds:
+      - cmake -B build_cov -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DENABLE_COVERAGE=ON
+      - cmake --build build_cov -j8
+      - LLVM_PROFILE_FILE=build_cov/test_cli.profraw ./build_cov/test_cli
+      - xcrun llvm-profdata merge -sparse build_cov/test_cli.profraw -o build_cov/test_cli.profdata
+      - node ../../../kernel/quality-gate/check_cpp_coverage.js ./build_cov/test_cli build_cov/test_cli.profdata 95.0
+
+  coverage:
+    desc: Run both C++ and Web coverage verification suites (100% web, >=95% C++)
+    cmds:
+      - task: coverage-web
+      - task: coverage-cpp
+
   calisthenics:
     desc: Run Sovereign Object Calisthenics static analysis audit
     cmds:

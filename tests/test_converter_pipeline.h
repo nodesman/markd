@@ -5,6 +5,7 @@
 #include <iostream>
 #include "Zinsser.h"
 #include "core/Converter.h"
+#include "parser/TocItem.h"
 
 inline void testOfflineAssetSelfContainment() {
     using Zinsser::describe;
@@ -51,6 +52,17 @@ inline void testConverterPipeline() {
             assert(fullDoc.contains("#050505"));
             assert(fullDoc.contains("qrc:/web/styles/obsidian.css"));
             assert(fullDoc.contains("Title"));
+        });
+
+        it("evaluates structural equality across table of contents item records", [&]() {
+            TocItem a{1, 10, "Title", "title"};
+            TocItem b{1, 10, "Title", "title"};
+            assert(a == b);
+
+            assert(!(a == TocItem{2, 10, "Title", "title"}));
+            assert(!(a == TocItem{1, 20, "Title", "title"}));
+            assert(!(a == TocItem{1, 10, "Different", "title"}));
+            assert(!(a == TocItem{1, 10, "Title", "different"}));
         });
     });
 }

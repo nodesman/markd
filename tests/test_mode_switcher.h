@@ -132,5 +132,29 @@ inline void testModeSwitcher(QApplication& app) {
             assert(switcher->sizeHint().height() == 26);
             assert(switcher->sizeHint().width() == 140);
         });
+
+        it("dispatches mode transitions through direct button clicks and hit boundaries", [&]() {
+            QList<QPushButton*> btns = switcher->findChildren<QPushButton*>();
+            assert(btns.size() == 2);
+            btns[0]->click();
+            assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
+
+            btns[1]->click();
+            assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Preview);
+
+            // Redundant setMode returns early without state churn
+            switcher->setMode(ModeSwitcher::DocumentMode::Preview);
+            assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Preview);
+
+            // Left-half click switches to Edit mode
+            QMouseEvent leftHalfClick(QEvent::MouseButtonPress, QPointF(20.0, 13.0), QPointF(20.0, 13.0), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(switcher, &leftHalfClick);
+            assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
+
+            // Right click passes through without state transition
+            QMouseEvent rightClick(QEvent::MouseButtonPress, QPointF(20.0, 13.0), QPointF(20.0, 13.0), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QApplication::sendEvent(switcher, &rightClick);
+            assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
+        });
     });
 }

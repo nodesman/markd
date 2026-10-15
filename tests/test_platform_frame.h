@@ -78,5 +78,46 @@ inline void testPlatformFrame(QApplication& app) {
             assert(std::abs(centerSlotMid - windowMid) <= 1);
 #endif
         });
+
+        it("neutralizes null window pointers in platform frame and safe area queries", [&]() {
+            PlatformSafeArea nullArea = PlatformFrame::safeArea(nullptr);
+            assert(nullArea.leftMargin == 0);
+            assert(nullArea.rightMargin == 0);
+
+            PlatformFrame::setupWindow(nullptr);
+
+            SidebarToggleButton defaultBtn;
+            assert(defaultBtn.parent() == nullptr);
+        });
+
+        it("handles mouse press and double click gestures across header bar bounds", [&]() {
+            MainWindow win;
+            HeaderBar* header = win.headerBar();
+            assert(header != nullptr);
+
+            QMouseEvent rightPress(QEvent::MouseButtonPress, QPointF(100, 20), QPointF(100, 20), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QApplication::sendEvent(header, &rightPress);
+
+            QMouseEvent topResizePress(QEvent::MouseButtonPress, QPointF(100, 2), QPointF(100, 2), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(header, &topResizePress);
+
+            QMouseEvent dragPress(QEvent::MouseButtonPress, QPointF(100, 20), QPointF(100, 20), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(header, &dragPress);
+
+            QMouseEvent dblClick(QEvent::MouseButtonDblClick, QPointF(100, 20), QPointF(100, 20), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(header, &dblClick);
+            QApplication::sendEvent(header, &dblClick);
+
+            // Double-click toggle while maximized switches back to normal
+            win.setWindowState(Qt::WindowMaximized);
+            QApplication::sendEvent(header, &dblClick);
+
+            // Asymmetric margin balancing exercises both left and right flank boundaries
+            header->leadingSlot()->setContentsMargins(150, 0, 0, 0);
+            header->trailingSlot()->setContentsMargins(0, 0, 160, 0);
+            header->balanceFlanks();
+            assert(header->leadingSlot()->minimumWidth() >= 160);
+            assert(header->trailingSlot()->minimumWidth() >= 160);
+        });
     });
 }

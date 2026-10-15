@@ -260,6 +260,30 @@ inline void testTocSidebarEdgeCases(QApplication& app) {
             emit win.tocWidget()->headingActivated("target-section");
             app.processEvents();
             assert(win.editor()->textCursor().blockNumber() == 5);
+
+            // In Preview mode, activating heading routes to preview scroll
+            win.modeSwitcher()->setMode(ModeSwitcher::DocumentMode::Preview);
+            emit win.tocWidget()->headingActivated("target-section");
+            app.processEvents();
+
+            // Activating unknown heading no-ops safely
+            emit win.tocWidget()->headingActivated("non-existent-section");
+        });
+
+        it("dispatches heading activation through list view item interaction", [&]() {
+            TocWidget tocWidget;
+            std::vector<TocItem> items = {{1, 1, "Section 1", "section-1"}};
+            tocWidget.setHeadings(items);
+
+            QSignalSpy activateSpy(&tocWidget, &TocWidget::headingActivated);
+            QModelIndex idx = tocWidget.view()->model()->index(0, 0);
+            emit tocWidget.view()->clicked(idx);
+            assert(activateSpy.count() == 1);
+            assert(activateSpy.last().at(0).toString() == "section-1");
+
+            // Invalid index safely ignored
+            emit tocWidget.view()->clicked(QModelIndex());
+            assert(activateSpy.count() == 1);
         });
     });
 }

@@ -51,6 +51,42 @@ inline void testDocumentSession(QApplication& app) {
             assert(tocSpy.count() == 1);
             assert(tocSpy.takeFirst().at(0).toString() == "[{\"id\":\"sec-1\"}]");
         });
+
+        it("mutates document theme, file path, mode, and dirty states directly", [&]() {
+            DocumentSession session;
+            QSignalSpy themeSpy(&session, &DocumentSession::themeChanged);
+            session.setTheme("aurora");
+            assert(session.theme() == "aurora");
+            assert(themeSpy.count() == 1);
+            session.setTheme("aurora");
+            assert(themeSpy.count() == 1);
+
+            QSignalSpy dirtySpy(&session, &DocumentSession::dirtyChanged);
+            session.setDirty(true);
+            assert(session.isDirty());
+            assert(dirtySpy.count() == 1);
+            session.setDirty(true);
+            assert(dirtySpy.count() == 1);
+
+            QSignalSpy modeSpy(&session, &DocumentSession::modeChanged);
+            session.setMode(1);
+            assert(session.mode() == 1);
+            assert(modeSpy.count() == 1);
+            session.setMode(1);
+            assert(modeSpy.count() == 1);
+
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_path_test_XXXXXX.md");
+            assert(tempFile.open());
+            tempFile.close();
+
+            QSignalSpy pathSpy(&session, &DocumentSession::filePathChanged);
+            session.setFilePath(tempFile.fileName());
+            assert(session.filePath() == tempFile.fileName());
+            assert(pathSpy.count() == 1);
+
+            session.setFilePath(tempFile.fileName());
+            assert(pathSpy.count() == 1);
+        });
     });
 
     describe("Headless file persistence and buffer mutation tracking", [&]() {
@@ -115,6 +151,24 @@ inline void testDocumentSession(QApplication& app) {
             QFile verifyFile(tempFile.fileName());
             assert(verifyFile.open(QIODevice::ReadOnly));
             assert(verifyFile.readAll() == "# Modified Content");
+
+            // Empty session save returns false
+            DocumentSession emptySession;
+            assert(!emptySession.save());
+            assert(!emptySession.saveAs(""));
+            assert(!emptySession.saveAs("/invalid/nonexistent/dir/cannot_write.md"));
+
+            // Loading nonexistent file returns false
+            assert(!session.loadFile("/invalid/nonexistent/file_path_12345.md"));
+
+            // saveAs to distinct target path updates filePath and watcher
+            QTemporaryFile secondFile(QDir::tempPath() + "/markd_saveas_test_XXXXXX.md");
+            secondFile.setAutoRemove(true);
+            assert(secondFile.open());
+            secondFile.close();
+
+            assert(session.saveAs(secondFile.fileName()));
+            assert(session.filePath() == secondFile.fileName());
         });
     });
 
@@ -299,6 +353,29 @@ inline void testDocumentSession(QApplication& app) {
 
             QTest::qWait(250);
             assert(conflictSpy.count() == 0);
+        });
+
+        it("handles watcher rearming, canonical path dispatch, and empty file persistence guards", [&]() {
+            DocumentSession emptySession;
+            assert(!emptySession.save());
+            assert(!emptySession.saveAs(""));
+
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_rearm_XXXXXX.md");
+            assert(tempFile.open());
+            tempFile.write("# Content");
+            tempFile.close();
+
+            DocumentSession session;
+            assert(session.loadFile(tempFile.fileName()));
+
+            // Invoking onRearmTimeout when file exists
+            QMetaObject::invokeMethod(&session, "onRearmTimeout");
+
+            // Canonical path mismatch in onFileChanged
+            QMetaObject::invokeMethod(&session, "onFileChanged", Q_ARG(QString, QString("/nonexistent/arbitrary/path.md")));
+
+            // Empty watcher timeout trigger
+            QMetaObject::invokeMethod(&emptySession, "onWatcherTimeout");
         });
     });
 }

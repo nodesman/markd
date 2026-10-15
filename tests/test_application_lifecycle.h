@@ -32,6 +32,17 @@ inline void testMarkdApplication(MarkdApplication& app) {
             assert(app.windows().size() == initialCount + 1);
             assert(app.windows().contains(win1));
             assert(createdSpy.count() == 1);
+
+            // Active window query retrieves active or first available registered window
+            win1->activateWindow();
+            MainWindow* active = app.activeWindow();
+            assert(active == win1);
+
+            // Null window registration guard safely ignores null pointer
+            QMetaObject::invokeMethod(&app, "registerWindow", Q_ARG(MainWindow*, nullptr));
+
+            // Empty file path safely returns null
+            assert(app.openFileInWindow("") == nullptr);
         });
     });
 

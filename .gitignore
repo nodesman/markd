@@ -10,4 +10,7 @@ cmake_install.cmake
 *.autogen/
 *_autogen/
 .qt/
+build_cov/
+*.profraw
+*.profdata
 Testing/

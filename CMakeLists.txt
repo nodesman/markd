@@ -15,6 +15,13 @@ if(APPLE AND NOT DEFINED CMAKE_PREFIX_PATH)
     endif()
 endif()
 
+option(ENABLE_COVERAGE "Enable Clang source-based code coverage" OFF)
+if(ENABLE_COVERAGE)
+    message(STATUS "Enabling Clang source-based code coverage")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate)
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test)
 
 include_directories(src)
