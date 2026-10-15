@@ -17,6 +17,7 @@
 #include "test_chromium_engine.h"
 #include "test_web_runtime.h"
 #include "test_bridge_protocol.h"
+#include "test_status_bar.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -39,6 +40,7 @@ int main(int argc, char* argv[]) {
     testNativeChromiumModernization(app);
     testWorkspaceModularizationAndEngineHierarchy(app);
     testDomainSemanticActionProtocol(app);
+    testStatusBarAndTelemetryEngine(app);
 
     return 0;
 }

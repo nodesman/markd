@@ -7,9 +7,11 @@
 #include <vector>
 #include "parser/TocItem.h"
 #include "parser/TocParser.h"
+#include "core/TelemetryEngine.h"
 
 // Required for QVariant::value<std::vector<TocItem>>() template extraction in Qt 6 / C++20
 Q_DECLARE_METATYPE(std::vector<TocItem>)
+Q_DECLARE_METATYPE(TelemetryMetrics)
 
 class DocumentSession : public QObject {
     Q_OBJECT
@@ -39,6 +41,7 @@ public:
 
     int wordCount() const { return m_wordCount; }
     int readingTimeMinutes() const { return m_readingTimeMinutes; }
+    const TelemetryMetrics& telemetryMetrics() const { return m_telemetryMetrics; }
 
 public slots:
     // Property Setters
@@ -62,6 +65,7 @@ public slots:
     Q_INVOKABLE void zoomOut();
     Q_INVOKABLE void resetZoom();
     Q_INVOKABLE void flushOutline();
+    Q_INVOKABLE void flushTelemetry();
 
 signals:
     void markdownChanged(const QString& markdown);
@@ -74,6 +78,7 @@ signals:
     void modeChanged(int mode);
 
     void metricsReported(int words, int minutes);
+    void telemetryUpdated(const TelemetryMetrics& metrics);
     void tocUpdated(const QString& tocJson);
     void fileLoaded(const QString& path);
     void tocChanged(const std::vector<TocItem>& headings);
@@ -88,6 +93,7 @@ private slots:
 
 private:
     void rearmWatcher();
+    void updateTelemetry();
 
     QString m_markdown;
     QString m_selectedHeading;
@@ -100,12 +106,15 @@ private:
 
     int m_wordCount = 0;
     int m_readingTimeMinutes = 0;
+    TelemetryMetrics m_telemetryMetrics;
 
     // Tracks last content loaded or written to disk to filter self-echoes
     QString m_lastKnownDiskContent;
 
     QTimer* m_tocDebounceTimer = nullptr;
+    QTimer* m_telemetryDebounceTimer = nullptr;
     QTimer* m_watcherDebounceTimer = nullptr;
     QTimer* m_rearmTimer = nullptr;
     QFileSystemWatcher* m_watcher = nullptr;
 };
+

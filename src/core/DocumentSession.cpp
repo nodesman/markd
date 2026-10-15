@@ -9,10 +9,15 @@ DocumentSession::DocumentSession(QObject* parent)
 {
     qRegisterMetaType<std::vector<TocItem>>("std::vector<TocItem>");
     qRegisterMetaType<TocItem>("TocItem");
+    qRegisterMetaType<TelemetryMetrics>("TelemetryMetrics");
 
     m_tocDebounceTimer = new QTimer(this);
     m_tocDebounceTimer->setSingleShot(true);
     connect(m_tocDebounceTimer, &QTimer::timeout, this, &DocumentSession::onTocDebounceTimeout);
+
+    m_telemetryDebounceTimer = new QTimer(this);
+    m_telemetryDebounceTimer->setSingleShot(true);
+    connect(m_telemetryDebounceTimer, &QTimer::timeout, this, &DocumentSession::updateTelemetry);
 
     m_watcher = new QFileSystemWatcher(this);
     m_watcherDebounceTimer = new QTimer(this);
@@ -23,6 +28,8 @@ DocumentSession::DocumentSession(QObject* parent)
     m_rearmTimer = new QTimer(this);
     m_rearmTimer->setSingleShot(true);
     connect(m_rearmTimer, &QTimer::timeout, this, &DocumentSession::onRearmTimeout);
+
+    updateTelemetry();
 }
 
 void DocumentSession::setMarkdown(const QString& md) {
@@ -32,7 +39,9 @@ void DocumentSession::setMarkdown(const QString& md) {
     setDirty(true);
     emit markdownChanged(m_markdown);
     m_tocDebounceTimer->start(150);
+    m_telemetryDebounceTimer->start(150);
 }
+
 
 void DocumentSession::setSelectedHeading(const QString& id) {
     if (m_selectedHeading != id) {
@@ -105,6 +114,8 @@ void DocumentSession::reportActiveHeading(const QString& id) {
 void DocumentSession::reportMetrics(int words, int minutes) {
     m_wordCount = words;
     m_readingTimeMinutes = minutes;
+    m_telemetryMetrics.wordCount = words;
+    m_telemetryMetrics.readingTimeMinutes = minutes;
     emit metricsReported(words, minutes);
 }
 
@@ -139,7 +150,11 @@ bool DocumentSession::loadFile(const QString& path) {
     m_isDirty = false;
 
     m_tocDebounceTimer->stop();
+    m_telemetryDebounceTimer->stop();
     auto headings = TocParser::extractHeadings(m_markdown);
+
+    updateTelemetry();
+
 
     emit fileLoaded(m_filePath);
     emit markdownChanged(m_markdown);
@@ -207,7 +222,14 @@ void DocumentSession::flushOutline() {
     m_tocDebounceTimer->stop();
     auto headings = TocParser::extractHeadings(m_markdown);
     emit tocChanged(headings);
+    flushTelemetry();
 }
+
+void DocumentSession::flushTelemetry() {
+    m_telemetryDebounceTimer->stop();
+    updateTelemetry();
+}
+
 
 void DocumentSession::onTocDebounceTimeout() {
     auto headings = TocParser::extractHeadings(m_markdown);
@@ -293,7 +315,11 @@ void DocumentSession::onWatcherTimeout() {
         m_lastKnownDiskContent = diskContent;
         m_isDirty = false;
         m_tocDebounceTimer->stop();
+        m_telemetryDebounceTimer->stop();
         auto headings = TocParser::extractHeadings(m_markdown);
+
+        updateTelemetry();
+
 
         emit markdownChanged(m_markdown);
         emit dirtyChanged(false);
@@ -301,3 +327,12 @@ void DocumentSession::onWatcherTimeout() {
         emit diskReloaded();
     }
 }
+
+void DocumentSession::updateTelemetry() {
+    m_telemetryMetrics = TelemetryEngine::calculateMetrics(m_markdown);
+    m_wordCount = m_telemetryMetrics.wordCount;
+    m_readingTimeMinutes = m_telemetryMetrics.readingTimeMinutes;
+    emit telemetryUpdated(m_telemetryMetrics);
+    emit metricsReported(m_wordCount, m_readingTimeMinutes);
+}
+

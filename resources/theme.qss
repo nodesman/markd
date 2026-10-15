@@ -245,4 +245,51 @@ QSplitter::handle:horizontal:pressed {
     color: #58a6ff;
 }
 
+/* Bottom Status Bar & Live Reading Telemetry (Task 11) */
+QStatusBar#statusBarTelemetry {
+    background-color: #0d1117;
+    border-top: 1px solid #1e242c;
+    min-height: 24px;
+    max-height: 24px;
+    color: #8b949e;
+    font-size: 11px;
+}
+
+QStatusBar#statusBarTelemetry::item {
+    border: none;
+    padding: 0 4px;
+}
+
+QStatusBar#statusBarTelemetry QLabel {
+    background: transparent;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 0 4px;
+}
+
+QStatusBar#statusBarTelemetry QLabel#telemetryLabel {
+    color: #8b949e;
+}
+
+QStatusBar#statusBarTelemetry QLabel#telemetryLabel:hover {
+    color: #c9d1d9;
+}
+
+QStatusBar#statusBarTelemetry QLabel#sectionContextLabel {
+    color: #6e7681;
+}
+
+QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="warning"] {
+    color: #d29922;
+}
+
+QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="info"] {
+    color: #58a6ff;
+}
+
+QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="error"] {
+    color: #f85149;
+}
+
+
 

@@ -3,6 +3,7 @@
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QItemSelectionModel>
+#include <algorithm>
 
 class TocItemDelegate : public QStyledItemDelegate {
 public:
@@ -180,3 +181,17 @@ void TocWidget::onItemActivated(const QModelIndex& index)
         emit headingActivated(id);
     }
 }
+
+QString TocWidget::activeHeadingTitle() const
+{
+    if (m_activeHeadingId.isEmpty()) return {};
+    auto it = std::find_if(m_headings.begin(), m_headings.end(), [this](const TocItem& item) {
+        return item.id == m_activeHeadingId;
+    });
+    if (it != m_headings.end()) {
+        return it->title;
+    }
+    return {};
+}
+
+

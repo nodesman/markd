@@ -14,6 +14,7 @@
 #include "ui/TocWidget.h"
 #include "parser/TocParser.h"
 #include "core/DocumentSession.h"
+#include "ui/StatusBarTelemetry.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -34,6 +35,10 @@ public:
     QSplitter* mainSplitter() const { return m_mainSplitter; }
     TocWidget* tocWidget() const { return m_tocWidget; }
     QPushButton* sidebarToggleButton() const { return m_sidebarToggleButton; }
+    StatusBarTelemetry* statusBar() const { return m_statusBar; }
+
+    using Mode = ModeSwitcher::DocumentMode;
+    void setMode(Mode mode);
 
     bool isSidebarCollapsed() const { return m_collapsed; }
     int sidebarSavedWidth() const { return m_savedWidth; }
@@ -96,6 +101,7 @@ private:
     QStackedWidget* m_viewportStack = nullptr;
     QPlainTextEdit* m_editor = nullptr;
     PreviewView* m_previewView = nullptr;
+    StatusBarTelemetry* m_statusBar = nullptr;
     MenuBuilder::Actions m_actions;
 
     int m_savedWidth = 250;

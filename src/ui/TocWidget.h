@@ -17,6 +17,7 @@ public:
     void setHeadings(const std::vector<TocItem>& items);
     Q_INVOKABLE void setActiveHeading(const QString& headingId);
     QString activeHeadingId() const { return m_activeHeadingId; }
+    QString activeHeadingTitle() const;
     int headingCount() const { return static_cast<int>(m_headings.size()); }
     const std::vector<TocItem>& headings() const { return m_headings; }
 

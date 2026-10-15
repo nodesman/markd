@@ -35,6 +35,8 @@ set(COMMON_SOURCES
     src/core/DocumentSession.cpp
     src/core/Converter.h
     src/core/Converter.cpp
+    src/core/TelemetryEngine.h
+    src/core/TelemetryEngine.cpp
     src/parser/TocItem.h
     src/parser/TocParser.h
     src/parser/TocParser.cpp
@@ -50,6 +52,8 @@ set(COMMON_SOURCES
     src/ui/HeaderBar.cpp
     src/ui/ModeSwitcher.h
     src/ui/ModeSwitcher.cpp
+    src/ui/StatusBarTelemetry.h
+    src/ui/StatusBarTelemetry.cpp
     src/ui/MenuBuilder.h
     src/ui/MenuBuilder.cpp
     src/ui/Theme.h

@@ -122,6 +122,36 @@ void MainWindow::setupUI()
     m_session = new DocumentSession(this);
     m_previewView->setSession(m_session);
 
+    // Initialize 24px Bottom Status Bar & Telemetry Engine (Task 11)
+    m_statusBar = new StatusBarTelemetry(this);
+    setStatusBar(m_statusBar);
+
+    connect(m_session, &DocumentSession::telemetryUpdated, m_statusBar, &StatusBarTelemetry::updateMetrics);
+    connect(m_session, &DocumentSession::zoomFactorChanged, m_statusBar, &StatusBarTelemetry::setZoomFactor);
+    m_statusBar->updateMetrics(m_session->telemetryMetrics());
+    m_statusBar->setZoomFactor(m_session->zoomFactor());
+
+    connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
+        if (m_tocWidget && m_tocWidget->headings().empty() && m_session && !m_session->markdown().isEmpty()) {
+            m_session->flushOutline();
+        }
+        if (m_tocWidget) {
+            m_tocWidget->setActiveHeading(id);
+        }
+        QString title = m_tocWidget ? m_tocWidget->activeHeadingTitle() : QString();
+        m_statusBar->setSectionTitle(title);
+        m_statusBar->setSectionVisible(isSidebarCollapsed() && !title.isEmpty());
+    });
+
+    connect(this, &MainWindow::sidebarToggled, this, [this](bool collapsed) {
+        if (m_tocWidget && m_tocWidget->headings().empty() && m_session && !m_session->markdown().isEmpty()) {
+            m_session->flushOutline();
+        }
+        QString title = m_tocWidget ? m_tocWidget->activeHeadingTitle() : QString();
+        m_statusBar->setSectionTitle(title);
+        m_statusBar->setSectionVisible(collapsed && !title.isEmpty());
+    });
+
     // Reactive observation of DocumentSession
     connect(m_session, &DocumentSession::markdownChanged, this, [this](const QString& md) {
         if (m_editor && m_editor->toPlainText() != md) {
@@ -140,6 +170,9 @@ void MainWindow::setupUI()
     connect(m_session, &DocumentSession::tocChanged, this, [this](const std::vector<TocItem>& headings) {
         if (m_tocWidget) {
             m_tocWidget->setHeadings(headings);
+            QString title = m_tocWidget->activeHeadingTitle();
+            m_statusBar->setSectionTitle(title);
+            m_statusBar->setSectionVisible(isSidebarCollapsed() && !title.isEmpty());
         }
     });
 
@@ -491,6 +524,13 @@ void MainWindow::onAbout()
            "<p>High-performance native Markdown viewer and editor.</p>"
            "<p>Engineered for command-line developers and power users.</p>")
     );
+}
+
+void MainWindow::setMode(Mode mode)
+{
+    if (m_modeSwitcher) {
+        m_modeSwitcher->setMode(mode);
+    }
 }
 
 void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
