@@ -384,5 +384,55 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
 
             assert(win.editor()->textCursor().block().text().contains("Section Two"));
         });
+
+        it("transfers active input focus to editor in edit mode", [&]() {
+            MainWindow win;
+            win.resize(1000, 650);
+            win.show();
+            app.processEvents();
+
+            win.setMode(MainWindow::Mode::Preview);
+            app.processEvents();
+
+            win.setMode(MainWindow::Mode::Edit);
+            app.processEvents();
+
+            assert(win.editor() != nullptr);
+            assert(win.editor()->hasFocus());
+        });
+
+        it("restores active input focus to web view in preview mode", [&]() {
+            MainWindow win;
+            win.resize(1000, 650);
+            win.show();
+            app.processEvents();
+
+            win.setMode(MainWindow::Mode::Edit);
+            app.processEvents();
+            assert(win.editor()->hasFocus());
+
+            win.setMode(MainWindow::Mode::Preview);
+            app.processEvents();
+
+            assert(win.previewView() != nullptr);
+            assert(win.previewView()->webView() != nullptr);
+            assert(win.previewView()->webView()->hasFocus());
+        });
+
+        it("retains no-focus policy on segmented mode buttons", [&]() {
+            MainWindow win;
+            win.resize(1000, 650);
+            win.show();
+            app.processEvents();
+
+            assert(win.modeSwitcher() != nullptr);
+            auto* editBtn = win.modeSwitcher()->findChild<QPushButton*>("modeSegmentEdit");
+            auto* previewBtn = win.modeSwitcher()->findChild<QPushButton*>("modeSegmentPreview");
+
+            assert(editBtn != nullptr);
+            assert(previewBtn != nullptr);
+            assert(editBtn->focusPolicy() == Qt::NoFocus);
+            assert(previewBtn->focusPolicy() == Qt::NoFocus);
+        });
     });
 }
