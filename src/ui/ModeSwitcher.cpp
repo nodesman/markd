@@ -17,6 +17,7 @@ ModeSwitcher::ModeSwitcher(QWidget* parent)
     m_editBtn->setObjectName("modeSegmentEdit");
     m_editBtn->setCheckable(true);
     m_editBtn->setChecked(true);
+    m_editBtn->setFocusPolicy(Qt::NoFocus);
     m_editBtn->setCursor(Qt::PointingHandCursor);
     m_editBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
@@ -24,6 +25,7 @@ ModeSwitcher::ModeSwitcher(QWidget* parent)
     m_previewBtn->setObjectName("modeSegmentPreview");
     m_previewBtn->setCheckable(true);
     m_previewBtn->setChecked(false);
+    m_previewBtn->setFocusPolicy(Qt::NoFocus);
     m_previewBtn->setCursor(Qt::PointingHandCursor);
     m_previewBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 

@@ -606,6 +606,10 @@ void MainWindow::switchToPreviewMode()
 {
     m_viewportStack->setCurrentIndex(1);
     if (!m_previewView || !m_session) return;
+    activateWindow();
+    if (m_previewView->webView()) {
+        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
+    }
     syncEditorToPreview();
 }
 
