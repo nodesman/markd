@@ -1,12 +1,50 @@
+
+// Prevent DOM clobbering of reserved bridge properties
+if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.addHook === 'function') {
+    DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+        if (node.hasAttribute('id')) {
+            var id = node.getAttribute('id');
+            if (id === 'markdBridge' || id === 'session' || id === 'Markd' || id === 'renderDocument') {
+                node.setAttribute('id', 'user-content-' + id);
+            }
+        }
+        if (node.hasAttribute('name')) {
+            var name = node.getAttribute('name');
+            if (name === 'markdBridge' || name === 'session' || name === 'Markd' || name === 'renderDocument') {
+                node.setAttribute('name', 'user-content-' + name);
+            }
+        }
+    });
+}
+
 // QWebChannel Bridge setup for Qt C++ IPC
 window.markdBridge = null;
 window.session = null;
+
+var isBridgeConnected = false;
+var pendingRenderSignals = [];
+
+function queueOrRenderDocument(markdown, options) {
+    if (!isBridgeConnected && !window.markdBridge) {
+        pendingRenderSignals.push({ markdown: markdown, options: options });
+        return;
+    }
+    renderMarkdown(markdown, options);
+}
+window.renderDocument = queueOrRenderDocument;
+
 function initQWebChannel() {
     if (typeof QWebChannel !== 'undefined' && typeof qt !== 'undefined' && qt.webChannelTransport) {
         new QWebChannel(qt.webChannelTransport, function(channel) {
             window.markdBridge = channel.objects.markdBridge;
             window.session = channel.objects.session;
+            isBridgeConnected = true;
+
             if (window.markdBridge) {
+                if (typeof Object.freeze === 'function') {
+                    Object.freeze(window.markdBridge);
+                }
+
                 window.markdBridge.logMessage("QWebChannel connected to render.js");
 
                 // Downlink typed signal connections from C++ WebBridge
@@ -26,10 +64,14 @@ function initQWebChannel() {
                 }
                 if (window.markdBridge.setTheme && typeof window.markdBridge.setTheme.connect === 'function') {
                     window.markdBridge.setTheme.connect(function(themeName) {
-                        if (themeName) {
-                            document.documentElement.setAttribute('data-theme', themeName);
-                        }
+                        syncMermaidTheme(themeName);
                     });
+                }
+
+                // Flush signals buffered before QWebChannel initialization completed
+                while (pendingRenderSignals.length > 0) {
+                    var queued = pendingRenderSignals.shift();
+                    renderMarkdown(queued.markdown, queued.options);
                 }
 
                 // Two-way handshake: notify C++ that bridge is initialized and ready
@@ -62,13 +104,62 @@ if (document.readyState === 'loading') {
     initQWebChannel();
 }
 
+// Global anchor navigation interception (Tier 1 WebEngine Guardrail)
+document.addEventListener('click', function (e) {
+    var target = e.target;
+    if (!target) return;
+    var anchor = target.closest('a');
+    if (!anchor) return;
+    var href = anchor.getAttribute('href');
+    if (!href) return;
+    if (href.startsWith('#')) {
+        e.preventDefault();
+        var targetId = decodeURIComponent(href.slice(1));
+        scrollToHeading(targetId);
+        return;
+    }
+    e.preventDefault();
+    if (window.markdBridge && typeof window.markdBridge.openExternalUrl === 'function') {
+        window.markdBridge.openExternalUrl(href);
+        return;
+    }
+    if (window.session && typeof window.session.openExternal === 'function') {
+        window.session.openExternal(href);
+        return;
+    }
+});
+
+// Configure DOMPurify hooks (rel="noopener noreferrer", CSS position neutralization)
+if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.addHook === 'function') {
+    DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+        if (node.tagName === 'A') {
+            var target = node.getAttribute('target');
+            var href = node.getAttribute('href') || '';
+            var isOutbound = target === '_blank' || /^(?:https?:\/\/|\/\/)/i.test(href);
+            if (isOutbound) {
+                node.setAttribute('rel', 'noopener noreferrer');
+            }
+        }
+        if (node.hasAttribute && node.hasAttribute('style')) {
+            var style = node.getAttribute('style');
+            if (/position\s*:\s*(?:fixed|absolute)/i.test(style)) {
+                var cleanStyle = style.replace(/position\s*:\s*(?:fixed|absolute);?/gi, '').trim();
+                if (cleanStyle) {
+                    node.setAttribute('style', cleanStyle);
+                } else {
+                    node.removeAttribute('style');
+                }
+            }
+        }
+    });
+}
+
 // Initialize markdown-it with plugins
 const md = window.markdownit({
     html: true,
     linkify: true,
     typographer: true,
     highlight: function (str, lang) {
-        // Skip mermaid blocks — let markdown-it preserve the language-mermaid class
         if (lang === 'mermaid') return '';
         if (lang && hljs.getLanguage(lang)) {
             try {
@@ -81,7 +172,7 @@ const md = window.markdownit({
     }
 });
 
-// Add anchor plugin for heading IDs
+// Add anchor plugin for heading IDs with Unicode property slugification
 if (window.markdownItAnchor) {
     md.use(window.markdownItAnchor, {
         permalink: false,
@@ -89,7 +180,7 @@ if (window.markdownItAnchor) {
             return s.trim()
                 .toLowerCase()
                 .replace(/\s+/g, '-')
-                .replace(/[^\w\u4e00-\u9fff-]/g, '')
+                .replace(/[^\p{L}\p{M}\p{N}_-]/gu, '')
                 .replace(/--+/g, '-')
                 .replace(/^-|-$/g, '');
         }
@@ -122,37 +213,84 @@ mermaid.initialize({
     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
 });
 
-// Update mermaid theme on dark mode change
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+function syncMermaidTheme(themeName) {
+    if (!themeName) return;
+    document.documentElement.setAttribute('data-theme', themeName);
+    var isDarkTheme = themeName === 'dark' || themeName.indexOf('dark') !== -1;
     mermaid.initialize({
         startOnLoad: false,
-        theme: e.matches ? 'dark' : 'default',
+        theme: isDarkTheme ? 'dark' : 'default',
         securityLevel: 'strict',
         fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
     });
+    if (currentRenderedMarkdown) {
+        renderMarkdown(currentRenderedMarkdown, { force: true });
+    }
+}
+window.setTheme = syncMermaidTheme;
+
+// Update mermaid theme on dark mode change
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+    syncMermaidTheme(e.matches ? 'dark' : 'default');
 });
 
-// ---- Main render function ----
+// ---- Diagram Event Listener Teardown Registry ----
+var diagramTeardowns = [];
 
+function cleanupDiagramListeners() {
+    while (diagramTeardowns.length > 0) {
+        var teardown = diagramTeardowns.pop();
+        teardown();
+    }
+}
+window.cleanupDiagramListeners = cleanupDiagramListeners;
+
+// ---- Async Downlink Mutex Queue ----
+var renderDownlinkMutex = null;
 var currentRenderedMarkdown = null;
 
-async function renderMarkdown(markdownText, options) {
+function renderMarkdown(markdownText, options) {
+    var scheduledTask = function () {
+        return executeRenderMarkdown(markdownText, options);
+    };
+    if (!renderDownlinkMutex) {
+        renderDownlinkMutex = scheduledTask().finally(function () {
+            renderDownlinkMutex = null;
+        });
+        return renderDownlinkMutex;
+    }
+    renderDownlinkMutex = renderDownlinkMutex.then(scheduledTask, scheduledTask);
+    return renderDownlinkMutex;
+}
+
+async function executeRenderMarkdown(markdownText, options) {
+    // Defensive type guard rejecting non-string payloads
+    if (typeof markdownText !== 'string') {
+        return;
+    }
+
     if (markdownText === currentRenderedMarkdown && (!options || !options.force)) {
         return;
     }
     currentRenderedMarkdown = markdownText;
+
+    // Synchronously dismiss active modal and unbind lingering diagram listeners
+    closeFullView(true);
+    cleanupDiagramListeners();
 
     const contentEl = document.getElementById('content');
 
     // 1. Parse markdown to HTML
     var html = md.render(markdownText);
 
-    // 2. Sanitize and insert into DOM (DOMPurify strips dangerous tags/attributes)
+    // 2. Sanitize and insert into DOM
     var clean = DOMPurify.sanitize(html, {
         ADD_TAGS: ['semantics', 'annotation'],
-        ADD_ATTR: ['target', 'encoding'],
+        ADD_ATTR: ['target', 'encoding', 'rel'],
         FORBID_TAGS: ['style'],
-        ALLOW_DATA_ATTR: true
+        ALLOW_DATA_ATTR: true,
+        SANITIZE_NAMED_PROPS: false,
+        RETURN_TRUSTED_TYPE: false
     });
     contentEl.innerHTML = clean;
 
@@ -162,17 +300,46 @@ async function renderMarkdown(markdownText, options) {
         var pre = mermaidBlocks[i].parentElement;
         var div = document.createElement('div');
         div.className = 'mermaid';
-        div.textContent = mermaidBlocks[i].textContent;
+        var codeText = mermaidBlocks[i].textContent.replace(/\n$/, '');
+        div.dataset.rawCode = codeText;
+        div.textContent = codeText;
         pre.replaceWith(div);
     }
 
-    // 4. Render mermaid diagrams
+    // 4. Render mermaid diagrams with per-diagram isolation
     var mermaidDivs = contentEl.querySelectorAll('.mermaid');
-    if (mermaidDivs.length > 0) {
+    for (var j = 0; j < mermaidDivs.length; j++) {
+        var mDiv = mermaidDivs[j];
+        if (!mDiv.isConnected) continue;
+        var rawDiagramCode = mDiv.dataset.rawCode;
         try {
-            await mermaid.run({ nodes: mermaidDivs });
+            await mermaid.run({ nodes: [mDiv] });
+            if (!mDiv.isConnected) continue;
+
+            // Re-sanitize generated SVG through DOMPurify SVG profile
+            var svgEl = mDiv.querySelector('svg');
+            if (svgEl) {
+                var cleanSvg = DOMPurify.sanitize(svgEl.outerHTML, {
+                    USE_PROFILES: { svg: true, svgFilters: true },
+                    FORBID_TAGS: ['style']
+                });
+                mDiv.innerHTML = cleanSvg;
+            }
         } catch (e) {
             console.error('Mermaid render error:', e);
+            var errorCard = document.createElement('div');
+            errorCard.className = 'mermaid-error-card';
+            var badge = document.createElement('div');
+            badge.className = 'mermaid-error-badge';
+            badge.textContent = 'Mermaid Syntax Error: ' + (e && e.message ? e.message : 'Invalid diagram syntax');
+            var rawPre = document.createElement('pre');
+            rawPre.className = 'mermaid-raw-code hljs';
+            var rawCodeNode = document.createElement('code');
+            rawCodeNode.textContent = rawDiagramCode;
+            rawPre.appendChild(rawCodeNode);
+            errorCard.appendChild(badge);
+            errorCard.appendChild(rawPre);
+            mDiv.replaceWith(errorCard);
         }
     }
 
@@ -327,9 +494,21 @@ function setupDiagramZoomPan(container, viewport, inner) {
     var label = container.querySelector('.zoom-label');
 
     function applyTransform(smooth) {
+        if (Math.abs(scale - 1) < 0.02) {
+            scale = 1;
+        }
         inner.style.transition = smooth ? 'transform 0.15s ease-out' : 'none';
         inner.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')';
         label.textContent = Math.round(scale * 100) + '%';
+    }
+
+    function clampPan(x, y) {
+        var limitX = Math.max(500, (viewport.clientWidth || 600) * scale);
+        var limitY = Math.max(500, (viewport.clientHeight || 400) * scale);
+        return {
+            x: Math.max(-limitX, Math.min(limitX, x)),
+            y: Math.max(-limitY, Math.min(limitY, y))
+        };
     }
 
     container.querySelector('.zoom-in-btn').addEventListener('click', function () {
@@ -351,9 +530,10 @@ function setupDiagramZoomPan(container, viewport, inner) {
         openFullView(inner.cloneNode(true), true);
     });
 
-    // Mouse wheel zoom
+    // Mouse wheel zoom with zero-delta guard
     viewport.addEventListener('wheel', function (e) {
         e.preventDefault();
+        if (Math.abs(e.deltaY) < 1e-3) return;
         var factor = e.deltaY < 0 ? 1.1 : 0.9;
         scale = Math.max(0.2, Math.min(5, scale * factor));
         applyTransform(false);
@@ -369,15 +549,32 @@ function setupDiagramZoomPan(container, viewport, inner) {
         e.preventDefault();
     });
 
-    document.addEventListener('mousemove', function (e) {
+    var onMouseMove = function (e) {
         if (!isPanning) return;
-        panX = startPanX + (e.clientX - startX);
-        panY = startPanY + (e.clientY - startY);
+        var clamped = clampPan(startPanX + (e.clientX - startX), startPanY + (e.clientY - startY));
+        panX = clamped.x;
+        panY = clamped.y;
         applyTransform(false);
-    });
+    };
 
-    document.addEventListener('mouseup', function () {
+    var onMouseUp = function () {
         isPanning = false;
+    };
+
+    var onPointerExit = function () {
+        isPanning = false;
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mouseleave', onPointerExit);
+    window.addEventListener('blur', onPointerExit);
+
+    diagramTeardowns.push(function () {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.removeEventListener('mouseleave', onPointerExit);
+        window.removeEventListener('blur', onPointerExit);
     });
 
     applyTransform(false);
@@ -394,14 +591,21 @@ function closeFullView(immediate) {
 }
 
 function openFullView(contentNode, isDiagram) {
-    // If an overlay is currently active, close and unbind it immediately
+    // Singleton modal lifecycle: synchronously close and unbind any existing overlay
     if (activeFullViewClose) {
         activeFullViewClose(true);
     }
 
-    // Remove any existing overlay
-    var existing = document.querySelector('.fullview-overlay');
-    if (existing) existing.remove();
+    var existingOverlays = document.querySelectorAll('.fullview-overlay');
+    for (var i = 0; i < existingOverlays.length; i++) {
+        existingOverlays[i].remove();
+    }
+
+    var previousFocusedElement = document.activeElement;
+
+    // Lock body scroll
+    document.body.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
 
     var overlay = document.createElement('div');
     overlay.className = 'fullview-overlay';
@@ -446,14 +650,24 @@ function openFullView(contentNode, isDiagram) {
 
     var fvMouseMoveHandler = null;
     var fvMouseUpHandler = null;
+    var fvExitHandler = null;
 
     // Close handler
     function closeOverlay(immediate) {
         activeFullViewClose = null;
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
         overlay.classList.remove('visible');
         document.removeEventListener('keydown', onKeyDown);
         if (fvMouseMoveHandler) document.removeEventListener('mousemove', fvMouseMoveHandler);
         if (fvMouseUpHandler) document.removeEventListener('mouseup', fvMouseUpHandler);
+        if (fvExitHandler) {
+            document.removeEventListener('mouseleave', fvExitHandler);
+            window.removeEventListener('blur', fvExitHandler);
+        }
+        if (previousFocusedElement && typeof previousFocusedElement.focus === 'function') {
+            previousFocusedElement.focus();
+        }
         if (immediate) {
             overlay.remove();
         } else {
@@ -466,10 +680,28 @@ function openFullView(contentNode, isDiagram) {
         closeOverlay(false);
     });
 
-    // Escape key to close
+    // Keyboard handlers (Escape to close, Tab focus trapping)
     function onKeyDown(e) {
         if (e.key === 'Escape') {
             closeOverlay(false);
+            return;
+        }
+        if (e.key === 'Tab') {
+            var focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (e.shiftKey) {
+                if (document.activeElement === first || !overlay.contains(document.activeElement)) {
+                    e.preventDefault();
+                    last.focus();
+                }
+                return;
+            }
+            if (document.activeElement === last || !overlay.contains(document.activeElement)) {
+                e.preventDefault();
+                first.focus();
+                return;
+            }
         }
     }
     document.addEventListener('keydown', onKeyDown);
@@ -481,9 +713,21 @@ function openFullView(contentNode, isDiagram) {
         var fvLabel = toolbar.querySelector('.zoom-label');
 
         function fvApply(smooth) {
+            if (Math.abs(fvScale - 1) < 0.02) {
+                fvScale = 1;
+            }
             inner.style.transition = smooth ? 'transform 0.15s ease-out' : 'none';
             inner.style.transform = 'translate(' + fvPanX + 'px,' + fvPanY + 'px) scale(' + fvScale + ')';
             fvLabel.textContent = Math.round(fvScale * 100) + '%';
+        }
+
+        function fvClampPan(x, y) {
+            var limitX = Math.max(500, (body.clientWidth || 800) * fvScale);
+            var limitY = Math.max(500, (body.clientHeight || 600) * fvScale);
+            return {
+                x: Math.max(-limitX, Math.min(limitX, x)),
+                y: Math.max(-limitY, Math.min(limitY, y))
+            };
         }
 
         toolbar.querySelector('.zoom-in-btn').addEventListener('click', function () {
@@ -498,6 +742,7 @@ function openFullView(contentNode, isDiagram) {
 
         body.addEventListener('wheel', function (e) {
             e.preventDefault();
+            if (Math.abs(e.deltaY) < 1e-3) return;
             var factor = e.deltaY < 0 ? 1.1 : 0.9;
             fvScale = Math.max(0.2, Math.min(5, fvScale * factor));
             fvApply(false);
@@ -509,17 +754,25 @@ function openFullView(contentNode, isDiagram) {
             fvStartPanX = fvPanX; fvStartPanY = fvPanY;
             e.preventDefault();
         });
+
         fvMouseMoveHandler = function (e) {
             if (!fvIsPanning) return;
-            fvPanX = fvStartPanX + (e.clientX - fvStartX);
-            fvPanY = fvStartPanY + (e.clientY - fvStartY);
+            var clamped = fvClampPan(fvStartPanX + (e.clientX - fvStartX), fvStartPanY + (e.clientY - fvStartY));
+            fvPanX = clamped.x;
+            fvPanY = clamped.y;
             fvApply(false);
         };
         fvMouseUpHandler = function () {
             fvIsPanning = false;
         };
+        fvExitHandler = function () {
+            fvIsPanning = false;
+        };
+
         document.addEventListener('mousemove', fvMouseMoveHandler);
         document.addEventListener('mouseup', fvMouseUpHandler);
+        document.addEventListener('mouseleave', fvExitHandler);
+        window.addEventListener('blur', fvExitHandler);
 
         fvApply(false);
     }
@@ -561,4 +814,3 @@ if (document.readyState === 'loading') {
 } else {
     window.Markd.isReady = true;
 }
-

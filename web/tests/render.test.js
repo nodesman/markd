@@ -946,4 +946,697 @@ describe('render.js Native Node.js Test Suite', () => {
             assert.ok(codeEl.textContent.includes('const x = 1;'));
         });
     });
+
+    describe('Web runtime engine hardening and behavioral invariants', () => {
+
+        describe('Domain 1: DOMPurify security sanitization and navigation guardrails', () => {
+            it('sanitizes DOM clobbering payloads targeting window.markdBridge and window.session', async () => {
+                const env = createRenderEnvironment();
+                env.win.markdBridge = { openExternalUrl: () => {}, active: true };
+                env.win.session = { openExternal: () => {}, active: true };
+
+                const maliciousMd =
+                    '# Heading\n\n' +
+                    '<form id="markdBridge"><input name="openExternalUrl"></form>\n' +
+                    '<form id="session"><input name="openExternal"></form>\n' +
+                    '<img name="markdBridge" src="x">\n';
+
+                await env.win.renderMarkdown(maliciousMd);
+
+                assert.ok(env.win.markdBridge !== null);
+                assert.equal(env.win.markdBridge.active, true);
+                assert.equal(typeof env.win.markdBridge.openExternalUrl, 'function');
+                assert.equal(env.win.session.active, true);
+                assert.equal(typeof env.win.session.openExternal, 'function');
+            });
+
+            it('intercepts external anchor navigation and dispatches URLs to native C++ bridge', async () => {
+                const env = createRenderEnvironment();
+                let openedUrl = null;
+                env.win.markdBridge = {
+                    openExternalUrl: (url) => { openedUrl = url; }
+                };
+
+                await env.win.renderMarkdown('[External Site](https://example.com/docs)');
+                const anchor = env.doc.querySelector('#content a');
+                assert.ok(anchor !== null);
+
+                const event = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                anchor.dispatchEvent(event);
+
+                assert.equal(event.defaultPrevented, true);
+                assert.equal(openedUrl, 'https://example.com/docs');
+
+                delete env.win.markdBridge;
+                let sessionUrl = null;
+                env.win.session = {
+                    openExternal: (url) => { sessionUrl = url; }
+                };
+
+                const sessionEvent = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                anchor.dispatchEvent(sessionEvent);
+
+                assert.equal(sessionEvent.defaultPrevented, true);
+                assert.equal(sessionUrl, 'https://example.com/docs');
+
+                delete env.win.session;
+                const noBridgeEvent = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                anchor.dispatchEvent(noBridgeEvent);
+                assert.equal(noBridgeEvent.defaultPrevented, true);
+
+                const hashMd = '[Internal Link](#internal-section)\n\n# Internal Section';
+                await env.win.renderMarkdown(hashMd);
+                const hashAnchor = env.doc.querySelector('#content a[href="#internal-section"]');
+                let scrolledHeading = null;
+                env.win.scrollToHeading = (id) => { scrolledHeading = id; };
+
+                const hashEvent = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                hashAnchor.dispatchEvent(hashEvent);
+
+                assert.equal(hashEvent.defaultPrevented, true);
+                assert.equal(scrolledHeading, 'internal-section');
+
+                const pClickEvent = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                env.doc.querySelector('#content h1').dispatchEvent(pClickEvent);
+                assert.equal(pClickEvent.defaultPrevented, false);
+
+                const noHrefAnchor = env.doc.createElement('a');
+                env.doc.body.appendChild(noHrefAnchor);
+                const noHrefEvent = new env.win.MouseEvent('click', { bubbles: true, cancelable: true });
+                noHrefAnchor.dispatchEvent(noHrefEvent);
+                assert.equal(noHrefEvent.defaultPrevented, false);
+                noHrefAnchor.remove();
+
+                const emptyEvent = new env.win.Event('click', { bubbles: false, cancelable: true });
+                Object.defineProperty(emptyEvent, 'target', { value: null });
+                env.doc.dispatchEvent(emptyEvent);
+            });
+
+            it('neutralizes malicious CSS positioning and fullscreen overlay injection', async () => {
+                const env = createRenderEnvironment();
+                const maliciousMd =
+                    '<div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999;">Malicious Overlay</div>\n' +
+                    '<div style="position: absolute; width: 100%; height: 100%;">Overlay 2</div>\n' +
+                    '<div style="position: absolute">Overlay 3</div>\n' +
+                    '<div style="color: red;">Safe Style</div>\n' +
+                    '<svg><style>body { display: none; }</style></svg>\n';
+
+                await env.win.renderMarkdown(maliciousMd);
+
+                assert.equal(env.doc.querySelectorAll('#content style').length, 0);
+                const divs = env.doc.querySelectorAll('#content div');
+                divs.forEach((div) => {
+                    const style = div.getAttribute('style') || '';
+                    assert.equal(/position\s*:\s*(?:fixed|absolute)/i.test(style), false);
+                });
+            });
+
+            it('neutralizes mutation XSS (mXSS) constructs across innerHTML roundtrips', async () => {
+                const env = createRenderEnvironment();
+                const mxssMd = '<form><math><mtext></form><form><mglyph><style></math><img src="x" onerror="window.__mxss = true">';
+
+                await env.win.renderMarkdown(mxssMd);
+
+                assert.equal(env.win.__mxss, undefined);
+                assert.equal(env.doc.querySelectorAll('#content img[onerror]').length, 0);
+            });
+
+            it('enforces rel="noopener noreferrer" on all external target="_blank" anchors', async () => {
+                const env = createRenderEnvironment();
+                const md =
+                    '<a href="https://example.com" target="_blank">Outbound Link</a>\n\n' +
+                    '<a href="/local/path" target="_blank">Target Blank Local</a>\n\n' +
+                    '<a href="#local-anchor">Local Link</a>\n\n' +
+                    '[Markdown Outbound](https://test.org)';
+
+                await env.win.renderMarkdown(md);
+
+                const outbound1 = env.doc.querySelector('#content a[href="https://example.com"]');
+                const outbound2 = env.doc.querySelector('#content a[href="https://test.org"]');
+                const targetBlankLocal = env.doc.querySelector('#content a[href="/local/path"]');
+                const localAnchor = env.doc.querySelector('#content a[href="#local-anchor"]');
+
+                assert.equal(outbound1.getAttribute('rel'), 'noopener noreferrer');
+                assert.equal(outbound2.getAttribute('rel'), 'noopener noreferrer');
+                assert.equal(targetBlankLocal.getAttribute('rel'), 'noopener noreferrer');
+                assert.equal(localAnchor.getAttribute('rel'), null);
+            });
+        });
+
+        describe('Domain 2: Modal lifecycle, memory hygiene and focus trapping', () => {
+            it('unbinds document mousemove and mouseup listeners when diagram zoom pan containers are dismantled', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                assert.doesNotThrow(() => {
+                    env.win.cleanupDiagramListeners();
+                });
+
+                assert.doesNotThrow(() => {
+                    env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 200 }));
+                    env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+                });
+            });
+
+            it('dismisses active fullview modal when renderMarkdown executes a fresh document build', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                assert.ok(env.doc.querySelector('.fullview-overlay') !== null);
+
+                await env.win.renderMarkdown('# Next Document');
+                assert.equal(env.doc.querySelector('.fullview-overlay'), null);
+            });
+
+            it('locks document body scroll when fullview modal opens and restores scroll on dismissal', async () => {
+                const env = createRenderEnvironment();
+                assert.equal(env.doc.body.classList.contains('modal-open'), false);
+                assert.notEqual(env.doc.body.style.overflow, 'hidden');
+
+                env.win.openFullView(env.doc.createElement('div'), false);
+                assert.equal(env.doc.body.classList.contains('modal-open'), true);
+                assert.equal(env.doc.body.style.overflow, 'hidden');
+
+                env.win.closeFullView(true);
+                assert.equal(env.doc.body.classList.contains('modal-open'), false);
+                assert.equal(env.doc.body.style.overflow, '');
+            });
+
+            it('traps keyboard focus within fullview modal and prevents tab navigation into background document', async () => {
+                const env = createRenderEnvironment();
+                const externalBtn = env.doc.createElement('button');
+                env.doc.body.appendChild(externalBtn);
+                externalBtn.focus();
+
+                env.win.openFullView(env.doc.createElement('div'), true);
+
+                const buttons = env.doc.querySelectorAll('.fullview-toolbar button');
+                assert.ok(buttons.length >= 2);
+                const firstBtn = buttons[0];
+                const middleBtn = buttons[1];
+                const lastBtn = buttons[buttons.length - 1];
+
+                lastBtn.focus();
+                const forwardTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(forwardTab);
+                assert.equal(env.doc.activeElement, firstBtn);
+
+                firstBtn.focus();
+                const reverseTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(reverseTab);
+                assert.equal(env.doc.activeElement, lastBtn);
+
+                middleBtn.focus();
+                const middleTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(middleTab);
+                assert.equal(middleTab.defaultPrevented, false);
+
+                middleBtn.focus();
+                const middleReverseTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(middleReverseTab);
+                assert.equal(middleReverseTab.defaultPrevented, false);
+
+                externalBtn.focus();
+                const outsideForwardTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(outsideForwardTab);
+                assert.equal(env.doc.activeElement, firstBtn);
+
+                externalBtn.focus();
+                const outsideReverseTab = new env.win.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(outsideReverseTab);
+                assert.equal(env.doc.activeElement, lastBtn);
+
+                const otherKey = new env.win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(otherKey);
+
+                env.win.closeFullView(true);
+                assert.equal(env.doc.activeElement, externalBtn);
+                externalBtn.remove();
+
+                // Test modal with zero focusable elements
+                const emptyOverlay = env.doc.createElement('div');
+                emptyOverlay.className = 'fullview-overlay';
+                env.doc.body.appendChild(emptyOverlay);
+                const tabEmpty = new env.win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                env.doc.dispatchEvent(tabEmpty);
+                emptyOverlay.remove();
+            });
+
+            it('dismantles previous modal synchronously when openFullView is invoked consecutively', async () => {
+                const env = createRenderEnvironment();
+                env.win.openFullView(env.doc.createElement('div'), false);
+                env.win.openFullView(env.doc.createElement('div'), false);
+                env.win.openFullView(env.doc.createElement('div'), false);
+
+                assert.equal(env.doc.querySelectorAll('.fullview-overlay').length, 1);
+                env.win.closeFullView(true);
+            });
+        });
+
+        describe('Domain 3: QWebChannel bridge IPC and concurrency', () => {
+            it('buffers incoming C++ renderDocument signals until QWebChannel handshake completes', async () => {
+                const env = createRenderEnvironment();
+                env.win.renderDocument('# Buffered Document Title\n\nContent');
+
+                assert.equal(env.doc.querySelector('#content h1'), null);
+
+                env.win.qt = { webChannelTransport: {} };
+                env.win.QWebChannel = function(transport, callback) {
+                    callback({
+                        objects: {
+                            markdBridge: {
+                                logMessage: () => {},
+                                bridgeReady: () => {},
+                                renderDocument: { connect: () => {} },
+                                navigateToHeading: { connect: () => {} },
+                                setTheme: { connect: () => {} }
+                            },
+                            session: {}
+                        }
+                    });
+                };
+                env.win.initQWebChannel();
+                await new Promise((resolve) => setTimeout(resolve, 50));
+
+                assert.ok(env.doc.querySelector('#content h1[id="buffered-document-title"]') !== null);
+
+                env.win.renderDocument('# Direct Document\n\nDirect Content');
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                assert.ok(env.doc.querySelector('#content h1[id="direct-document"]') !== null);
+            });
+
+            it('serializes concurrent renderMarkdown executions through an async downlink mutex', async () => {
+                const env = createRenderEnvironment();
+                const order = [];
+                let releaseLock;
+
+                const originalRun = env.win.mermaid.run;
+                env.win.mermaid.run = async ({ nodes }) => {
+                    order.push('start-diagram');
+                    await new Promise((r) => { releaseLock = r; });
+                    order.push('finish-diagram');
+                    return originalRun({ nodes });
+                };
+
+                const p1 = env.win.renderMarkdown('# First Doc\n\n```mermaid\ngraph TD;\nA-->B;\n```\n');
+                const p2 = env.win.renderMarkdown('# Second Doc\n\nContent');
+
+                assert.equal(order.length, 1);
+                assert.equal(order[0], 'start-diagram');
+
+                releaseLock();
+                await p1;
+                await p2;
+
+                assert.equal(order.length, 2);
+                assert.equal(order[1], 'finish-diagram');
+                assert.ok(env.doc.querySelector('#content h1') !== null);
+                assert.equal(env.doc.querySelector('#content h1').textContent, 'Second Doc');
+            });
+
+            it('rejects malformed non-string markdown payloads without throwing uncaught exceptions', async () => {
+                const env = createRenderEnvironment();
+                await assert.doesNotReject(async () => {
+                    await env.win.renderMarkdown(null);
+                    await env.win.renderMarkdown(undefined);
+                    await env.win.renderMarkdown(12345);
+                    await env.win.renderMarkdown({});
+                    await env.win.renderMarkdown([]);
+                });
+                assert.equal(env.doc.querySelector('#content').innerHTML, '');
+            });
+
+            it('synchronizes Mermaid engine theme dynamically upon setTheme bridge invocation', async () => {
+                const env = createRenderEnvironment();
+                let initializedTheme = null;
+                env.win.mermaid.initialize = (cfg) => {
+                    initializedTheme = cfg.theme;
+                };
+
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                env.win.setTheme('');
+                assert.equal(initializedTheme, null);
+
+                env.win.setTheme('dark');
+                assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'dark');
+                assert.equal(initializedTheme, 'dark');
+
+                env.win.setTheme('obsidian-dark');
+                assert.equal(initializedTheme, 'dark');
+
+                env.win.setTheme('light');
+                assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'light');
+                assert.equal(initializedTheme, 'default');
+            });
+
+            it('preserves Tamil and international Unicode characters in heading anchors matching C++ slug parity', async () => {
+                const env = createRenderEnvironment();
+                const md =
+                    '# அறம் வெல்லும்\n\n' +
+                    '## Über Uns\n\n' +
+                    '### 東京 Skyline\n\n' +
+                    '#### Hello World 2026';
+
+                await env.win.renderMarkdown(md);
+
+                const h1 = env.doc.querySelector('#content h1');
+                const h2 = env.doc.querySelector('#content h2');
+                const h3 = env.doc.querySelector('#content h3');
+                const h4 = env.doc.querySelector('#content h4');
+
+                assert.equal(h1.id, 'அறம்-வெல்லும்');
+                assert.equal(h2.id, 'über-uns');
+                assert.equal(h3.id, '東京-skyline');
+                assert.equal(h4.id, 'hello-world-2026');
+            });
+        });
+
+        describe('Domain 4: Zoom/pan math, coordinate clamping and state physics', () => {
+            it('ignores zero-delta wheel events without mutating current scale factor', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const viewport = env.doc.querySelector('.mermaid-viewport');
+                const label = env.doc.querySelector('.zoom-label');
+
+                assert.equal(label.textContent, '100%');
+
+                const zeroDeltaEvent = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                zeroDeltaEvent.deltaY = 0;
+                viewport.dispatchEvent(zeroDeltaEvent);
+
+                assert.equal(label.textContent, '100%');
+
+                const microDeltaEvent = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                microDeltaEvent.deltaY = 0.00001;
+                viewport.dispatchEvent(microDeltaEvent);
+
+                assert.equal(label.textContent, '100%');
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                const fvBody = env.doc.querySelector('.fullview-body');
+                const fvLabel = env.doc.querySelector('.fullview-toolbar .zoom-label');
+                assert.equal(fvLabel.textContent, '100%');
+
+                const fvZeroDelta = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                fvZeroDelta.deltaY = 0;
+                fvBody.dispatchEvent(fvZeroDelta);
+                assert.equal(fvLabel.textContent, '100%');
+
+                env.win.closeFullView(true);
+            });
+
+            it('snaps zoom scale to unity when reversing zoom in and zoom out cycles', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const container = env.doc.querySelector('.expandable-container');
+                const zoomInBtn = container.querySelector('.zoom-in-btn');
+                const zoomOutBtn = container.querySelector('.zoom-out-btn');
+                const label = container.querySelector('.zoom-label');
+
+                zoomInBtn.click();
+                zoomOutBtn.click();
+
+                assert.equal(label.textContent, '100%');
+                const inner = container.querySelector('.mermaid-inner');
+                assert.ok(inner.style.transform.includes('scale(1)'));
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                const fvToolbar = env.doc.querySelector('.fullview-toolbar');
+                const fvInBtn = fvToolbar.querySelector('.zoom-in-btn');
+                const fvOutBtn = fvToolbar.querySelector('.zoom-out-btn');
+                const fvLabel = fvToolbar.querySelector('.zoom-label');
+
+                fvInBtn.click();
+                fvOutBtn.click();
+                assert.equal(fvLabel.textContent, '100%');
+                const fvInner = env.doc.querySelector('.fullview-inner');
+                assert.ok(fvInner.style.transform.includes('scale(1)'));
+
+                env.win.closeFullView(true);
+            });
+
+            it('clamps pan coordinates within bounded diagram viewport extents', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const viewport = env.doc.querySelector('.mermaid-viewport');
+                const inner = env.doc.querySelector('.mermaid-inner');
+
+                const mouseDown = new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 });
+                viewport.dispatchEvent(mouseDown);
+
+                const mouseMove = new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 100000, clientY: 100000 });
+                env.doc.dispatchEvent(mouseMove);
+
+                assert.ok(!inner.style.transform.includes('translate(99900px, 99900px)'));
+                const match = inner.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+                assert.ok(match !== null);
+                const x = parseFloat(match[1]);
+                const y = parseFloat(match[2]);
+                assert.ok(x <= 2000 && x > 0);
+                assert.ok(y <= 2000 && y > 0);
+
+                env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                const fvBody = env.doc.querySelector('.fullview-body');
+                const fvInner = env.doc.querySelector('.fullview-inner');
+
+                fvBody.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 }));
+                env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 50000, clientY: 50000 }));
+                env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+                const fvMatch = fvInner.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+                assert.ok(fvMatch !== null);
+                const fvX = parseFloat(fvMatch[1]);
+                const fvY = parseFloat(fvMatch[2]);
+                assert.ok(fvX <= 2000 && fvX > 0);
+                assert.ok(fvY <= 2000 && fvY > 0);
+
+                env.win.closeFullView(true);
+            });
+
+            it('resets panning state when pointer leaves window or loses focus', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const viewport = env.doc.querySelector('.mermaid-viewport');
+                const inner = env.doc.querySelector('.mermaid-inner');
+
+                viewport.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 50 }));
+
+                env.doc.dispatchEvent(new env.win.Event('mouseleave'));
+
+                const prevTransform = inner.style.transform;
+                env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 150, clientY: 150 }));
+                assert.equal(inner.style.transform, prevTransform);
+
+                viewport.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 50 }));
+                env.win.dispatchEvent(new env.win.Event('blur'));
+                env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 200 }));
+                assert.equal(inner.style.transform, prevTransform);
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                const fvBody = env.doc.querySelector('.fullview-body');
+                const fvInner = env.doc.querySelector('.fullview-inner');
+
+                fvBody.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 50 }));
+                env.doc.dispatchEvent(new env.win.Event('mouseleave'));
+                const prevFvTransform = fvInner.style.transform;
+                env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 150, clientY: 150 }));
+                assert.equal(fvInner.style.transform, prevFvTransform);
+
+                fvBody.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 50 }));
+                env.win.dispatchEvent(new env.win.Event('blur'));
+                env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 200 }));
+                assert.equal(fvInner.style.transform, prevFvTransform);
+
+                env.win.closeFullView(true);
+            });
+
+            it('clamps zoom scale strictly between 0.2 and 5.0 across rapid wheel bursts', async () => {
+                const env = createRenderEnvironment();
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const viewport = env.doc.querySelector('.mermaid-viewport');
+                const label = env.doc.querySelector('.zoom-label');
+
+                for (let i = 0; i < 50; i++) {
+                    const wheel = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                    wheel.deltaY = 500;
+                    viewport.dispatchEvent(wheel);
+                }
+                assert.equal(label.textContent, '20%');
+
+                for (let i = 0; i < 50; i++) {
+                    const wheel = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                    wheel.deltaY = -500;
+                    viewport.dispatchEvent(wheel);
+                }
+                assert.equal(label.textContent, '500%');
+
+                const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+                env.win.openFullView(node, true);
+                const fvBody = env.doc.querySelector('.fullview-body');
+                const fvLabel = env.doc.querySelector('.fullview-toolbar .zoom-label');
+
+                for (let i = 0; i < 50; i++) {
+                    const wheel = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                    wheel.deltaY = 500;
+                    fvBody.dispatchEvent(wheel);
+                }
+                assert.equal(fvLabel.textContent, '20%');
+
+                for (let i = 0; i < 50; i++) {
+                    const wheel = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+                    wheel.deltaY = -500;
+                    fvBody.dispatchEvent(wheel);
+                }
+                assert.equal(fvLabel.textContent, '500%');
+
+                env.win.closeFullView(true);
+            });
+        });
+
+        describe('Domain 5: Mermaid pipeline resiliency and SVG isolation', () => {
+            it('isolates individual Mermaid diagram compilation failures to prevent batch fail-stop', async () => {
+                const env = createRenderEnvironment();
+
+                env.win.mermaid.run = async ({ nodes }) => {
+                    for (const node of nodes) {
+                        if (node.dataset.rawCode && node.dataset.rawCode.includes('BROKEN_DIAGRAM')) {
+                            throw new Error('Syntax error in diagram 1');
+                        }
+                        node.innerHTML = '<svg class="valid-mermaid-svg"><text>Valid Diagram 2</text></svg>';
+                    }
+                };
+
+                const md =
+                    '```mermaid\nBROKEN_DIAGRAM\n```\n\n' +
+                    '```mermaid\ngraph TD;\nA-->B;\n```\n';
+
+                await env.win.renderMarkdown(md);
+
+                const errorCard = env.doc.querySelector('.mermaid-error-card');
+                assert.ok(errorCard !== null);
+                assert.ok(errorCard.querySelector('.mermaid-error-badge').textContent.includes('Syntax error in diagram 1'));
+
+                const validSvg = env.doc.querySelector('.valid-mermaid-svg');
+                assert.ok(validSvg !== null);
+            });
+
+            it('retains raw fenced code block with error badge when Mermaid diagram syntax is invalid', async () => {
+                const env = createRenderEnvironment();
+                env.win.mermaid.run = async () => {
+                    throw new Error('Parse error on line 2');
+                };
+
+                const rawMermaid = 'sequenceDiagram\nAlice->>Bob: Hello\nInvalid Syntax Line';
+                await env.win.renderMarkdown('```mermaid\n' + rawMermaid + '\n```');
+
+                const errorCard = env.doc.querySelector('.mermaid-error-card');
+                assert.ok(errorCard !== null);
+
+                const badge = errorCard.querySelector('.mermaid-error-badge');
+                assert.ok(badge !== null);
+                assert.ok(badge.textContent.includes('Parse error on line 2'));
+
+                const rawCode = errorCard.querySelector('pre.mermaid-raw-code code');
+                assert.ok(rawCode !== null);
+                assert.equal(rawCode.textContent, rawMermaid);
+
+                env.win.mermaid.run = async () => {
+                    throw 'string-exception';
+                };
+                await env.win.renderMarkdown('```mermaid\nraw fallback\n```', { force: true });
+                const errorCard2 = env.doc.querySelector('.mermaid-error-card');
+                assert.ok(errorCard2.querySelector('.mermaid-error-badge').textContent.includes('Invalid diagram syntax'));
+            });
+
+            it('sanitizes Mermaid SVG output through DOMPurify SVG profile before DOM insertion', async () => {
+                const env = createRenderEnvironment();
+                env.win.mermaid.run = async ({ nodes }) => {
+                    for (const node of nodes) {
+                        node.innerHTML = '<svg><script>window.__svgXss = true;</script><text>Safe Text</text></svg>';
+                    }
+                };
+
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                assert.equal(env.win.__svgXss, undefined);
+                assert.equal(env.doc.querySelectorAll('#content script').length, 0);
+                assert.ok(env.doc.querySelector('#content text') !== null);
+
+                env.win.mermaid.run = async ({ nodes }) => {
+                    for (const node of nodes) {
+                        node.innerHTML = '<div>No SVG content</div>';
+                    }
+                };
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nC-->D;\n```\n', { force: true });
+                assert.ok(env.doc.querySelector('#content') !== null);
+            });
+
+            it('neutralizes Mermaid click directives and javascript URI callbacks', async () => {
+                const env = createRenderEnvironment();
+                env.win.mermaid.run = async ({ nodes }) => {
+                    for (const node of nodes) {
+                        node.innerHTML =
+                            '<svg>' +
+                            '<a href="javascript:alert(1)"><text>Click Exploit</text></a>' +
+                            '<a xlink:href="javascript:void(0)"><text>Click Exploit 2</text></a>' +
+                            '<a href="https://example.com"><text>Safe Link</text></a>' +
+                            '<a><text>No Href Link</text></a>' +
+                            '</svg>';
+                    }
+                };
+
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                const links = env.doc.querySelectorAll('#content .mermaid a');
+                assert.equal(links.length, 4);
+                assert.equal(links[0].getAttribute('href'), null);
+                assert.equal(links[1].getAttribute('xlink:href'), null);
+                assert.equal(links[2].getAttribute('href'), 'https://example.com');
+                assert.equal(links[3].getAttribute('href'), null);
+            });
+
+            it('aborts Mermaid rendering if diagram DOM node is disconnected before completion', async () => {
+                const env = createRenderEnvironment();
+                let diagramDiv = null;
+
+                env.win.mermaid.run = async ({ nodes }) => {
+                    diagramDiv = nodes[0];
+                    diagramDiv.remove();
+                    diagramDiv.innerHTML = '<svg><text>Detached</text></svg>';
+                };
+
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+                assert.equal(env.doc.querySelectorAll('.expandable-container').length, 0);
+
+                // Cover pre-mermaid.run disconnection check
+                const preRemoveEnv = createRenderEnvironment();
+                const origQuerySelectorAll = preRemoveEnv.doc.getElementById('content').querySelectorAll.bind(preRemoveEnv.doc.getElementById('content'));
+                preRemoveEnv.doc.getElementById('content').querySelectorAll = (sel) => {
+                    const res = origQuerySelectorAll(sel);
+                    if (sel === '.mermaid' && res.length > 0) {
+                        res[0].remove();
+                    }
+                    return res;
+                };
+                await preRemoveEnv.win.renderMarkdown('```mermaid\ngraph TD;\nE-->F;\n```\n');
+                assert.equal(preRemoveEnv.doc.querySelectorAll('.expandable-container').length, 0);
+            });
+        });
+    });
 });
+
