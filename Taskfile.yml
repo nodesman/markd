@@ -32,6 +32,18 @@ tasks:
     cmds:
       - npm test
 
+  coverage-web:
+    desc: Run JavaScript test suite with c8 and verify 100% branch and line coverage
+    dir: web
+    cmds:
+      - npm run test:coverage
+
+  calisthenics:
+    desc: Run Sovereign Object Calisthenics static analysis audit
+    cmds:
+      - node ../../../kernel/quality-gate/calisthenics_auditor.js src
+      - node ../../../kernel/quality-gate/calisthenics_auditor.js web/src
+
   test:
     desc: Run both decoupled test suites (C++ and Web)
     cmds:

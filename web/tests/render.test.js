@@ -2,6 +2,7 @@ const { describe, it, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 /**
@@ -90,7 +91,11 @@ function createRenderEnvironment() {
     win.eval('(function() { ' + fs.readFileSync(path.join(webDir, 'vendor/markdown-it/texmath.min.js'), 'utf8') + '\nwindow.texmath = texmath; })();');
 
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
-    win.eval(fs.readFileSync(path.join(webDir, 'src/render.js'), 'utf8'));
+
+    const renderPath = path.join(webDir, 'src/render.js');
+    const renderSrc = fs.readFileSync(renderPath, 'utf8');
+    const renderScript = new vm.Script(renderSrc, { filename: renderPath });
+    renderScript.runInContext(dom.getInternalVMContext());
 
     // Trigger DOMContentLoaded to mark Markd engine as ready
     win.document.dispatchEvent(new win.Event('DOMContentLoaded'));
@@ -262,11 +267,27 @@ describe('render.js Native Node.js Test Suite', () => {
             assert.ok(env.doc.querySelector('#content .mermaid-viewport .mermaid-inner') !== null);
         });
 
-        it('preserves container structure against duplicate wrapping invocations', () => {
+        it('preserves container structure against duplicate wrapping invocations', async () => {
+            await env.win.renderMarkdown(
+                '```mermaid\ngraph TD\nA-->B\n```\n\n| Header 1 | Header 2 |\n|---|---|\n| Val 1 | Val 2 |\n'
+            );
             env.win.wrapMermaidDiagrams();
             env.win.wrapTables();
             const containers = env.doc.querySelectorAll('#content .expandable-container');
+            const tableWrappers = env.doc.querySelectorAll('#content .table-wrapper');
             assert.equal(containers.length, 1);
+            assert.equal(tableWrappers.length, 1);
+        });
+
+        it('guards against re-wrapping tables when parent element already has table-wrapper class', () => {
+            const content = env.doc.querySelector('#content');
+            content.classList.add('table-wrapper');
+            const tbl = env.doc.createElement('table');
+            content.appendChild(tbl);
+            env.win.wrapTables();
+            assert.equal(tbl.parentElement, content);
+            content.classList.remove('table-wrapper');
+            tbl.remove();
         });
     });
 
@@ -484,12 +505,21 @@ describe('render.js Native Node.js Test Suite', () => {
             assert.equal(env.doc.querySelector('.fullview-overlay'), null);
         });
 
-        it('prevents duplicate concurrent modal overlay instantiations', () => {
+        it('prevents duplicate concurrent modal overlay instantiations and removes lingering overlays', () => {
             const node1 = env.doc.createElement('div');
             const node2 = env.doc.createElement('div');
+            const node3 = env.doc.createElement('div');
 
             env.win.openFullView(node1, false);
+            // Click close-btn to trigger non-immediate close (clears activeFullViewClose while overlay remains in DOM during fadeout)
+            const closeBtn = env.doc.querySelector('.fullview-toolbar .close-btn');
+            closeBtn.click();
+
+            // Calling openFullView while overlay lingers in DOM covers the (existing) removal branch
             env.win.openFullView(node2, false);
+
+            // Calling openFullView while activeFullViewClose is active covers activeFullViewClose branch
+            env.win.openFullView(node3, false);
 
             const overlays = env.doc.querySelectorAll('.fullview-overlay');
             assert.equal(overlays.length, 1);
@@ -572,6 +602,341 @@ describe('render.js Native Node.js Test Suite', () => {
         it('applies obsidian theme task-check color variable in live DOM', () => {
             const taskColor = env.win.getComputedStyle(env.doc.documentElement).getPropertyValue('--task-check').trim();
             assert.equal(taskColor, '#3fb950');
+        });
+    });
+
+    describe('QWebChannel Transport Handshake & Signal Downlinks', () => {
+        it('establishes QWebChannel transport and binds downlinks and uplinks', () => {
+            const env = createRenderEnvironment();
+            let loggedMessage = '';
+            let bridgeReadyCalled = false;
+
+            env.win.qt = { webChannelTransport: {} };
+            env.win.QWebChannel = function(transport, callback) {
+                callback({
+                    objects: {
+                        markdBridge: {
+                            logMessage: (msg) => { loggedMessage = msg; },
+                            bridgeReady: () => { bridgeReadyCalled = true; },
+                            renderDocument: {
+                                connect: (fn) => { fn('# Downlink Test', { force: true }); }
+                            },
+                            navigateToHeading: {
+                                connect: (fn) => { fn('downlink-heading'); }
+                            },
+                            setTheme: {
+                                connect: (fn) => { fn('dark'); }
+                            }
+                        },
+                        session: {
+                            markdownChanged: {
+                                connect: (fn) => { fn('# Session Changed'); }
+                            },
+                            selectedHeadingChanged: {
+                                connect: (fn) => { fn('session-heading'); }
+                            }
+                        }
+                    }
+                });
+            };
+
+            env.win.eval('initQWebChannel()');
+
+            assert.equal(loggedMessage, 'QWebChannel connected to render.js');
+            assert.equal(bridgeReadyCalled, true);
+            assert.equal(env.win.Markd.bridge, env.win.markdBridge);
+            assert.equal(env.win.Markd.session, env.win.session);
+            assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'dark');
+        });
+    });
+
+    describe('Modal Interactive Panning and Zoom Transformations', () => {
+        let env;
+        beforeEach(async () => {
+            env = createRenderEnvironment();
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+        });
+
+        it('manipulates modal zoom via toolbar buttons and mouse wheel', () => {
+            const node = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+            env.win.openFullView(node, true);
+            const modal = env.doc.querySelector('.fullview-overlay');
+            assert.ok(modal !== null);
+
+            const zoomOutBtn = modal.querySelector('.zoom-out-btn');
+            const zoomInBtn = modal.querySelector('.zoom-in-btn');
+            const zoomResetBtn = modal.querySelector('.zoom-reset-btn');
+            const zoomLabel = modal.querySelector('.zoom-label');
+            const body = modal.querySelector('.fullview-body');
+
+            zoomOutBtn.click();
+            assert.ok(zoomLabel.textContent.includes('%'));
+
+            zoomInBtn.click();
+            zoomResetBtn.click();
+            assert.equal(zoomLabel.textContent, '100%');
+
+            const wheelEvent = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+            wheelEvent.deltaY = -120;
+            body.dispatchEvent(wheelEvent);
+
+            const wheelZoomOut = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+            wheelZoomOut.deltaY = 120;
+            body.dispatchEvent(wheelZoomOut);
+
+            const mouseDown = new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 200, clientY: 200 });
+            body.dispatchEvent(mouseDown);
+
+            const mouseMove = new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 250, clientY: 260 });
+            env.doc.dispatchEvent(mouseMove);
+
+            const mouseUp = new env.win.MouseEvent('mouseup', { bubbles: true });
+            env.doc.dispatchEvent(mouseUp);
+
+            env.win.closeFullView();
+        });
+    });
+
+    describe('Scroll-Spy Intersection Observation and Heading Throttling', () => {
+        it('reports active heading through intersection observer entries', async () => {
+            const env = createRenderEnvironment();
+            let reportedHeading = '';
+            let bridgeHeading = '';
+            env.win.session = {
+                reportActiveHeading: (id) => { reportedHeading = id; }
+            };
+            env.win.markdBridge = {
+                onActiveHeadingChanged: (id) => { bridgeHeading = id; }
+            };
+
+            let observerCallback = null;
+            env.win.IntersectionObserver = class {
+                constructor(cb) {
+                    observerCallback = cb;
+                }
+                observe() {}
+                unobserve() {}
+                disconnect() {}
+            };
+
+            await env.win.renderMarkdown('# Top Section\n\n## Sub Section\n');
+            env.win.setupScrollSpy();
+
+            assert.equal(typeof observerCallback, 'function');
+            observerCallback([
+                { isIntersecting: true, boundingClientRect: { top: 50 }, target: { id: 'top-section' } },
+                { isIntersecting: true, boundingClientRect: { top: 120 }, target: { id: 'sub-section' } }
+            ]);
+
+            assert.equal(reportedHeading, 'top-section');
+            assert.equal(bridgeHeading, 'top-section');
+        });
+
+        it('throttles rapid scroll requests to same heading within 150ms', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('# Throttled Heading\n\nContent');
+
+            let scrollCount = 0;
+            const headingEl = env.doc.getElementById('throttled-heading');
+            if (headingEl) {
+                headingEl.scrollIntoView = () => { scrollCount++; };
+            }
+
+            env.win.scrollToHeading('throttled-heading');
+            env.win.scrollToHeading('throttled-heading');
+
+            assert.equal(scrollCount, 1);
+        });
+
+        it('respects render caching unless force option is supplied', async () => {
+            const env = createRenderEnvironment();
+            const md = '# Cached Markdown Document\n\nBody.';
+            await env.win.renderMarkdown(md);
+
+            env.doc.getElementById('content').innerHTML = '<div id="mutated"></div>';
+
+            await env.win.renderMarkdown(md);
+            assert.ok(env.doc.getElementById('mutated') !== null);
+
+            await env.win.renderMarkdown(md, { force: true });
+            assert.ok(env.doc.getElementById('mutated') === null);
+        });
+
+        it('opens fullview modal via container toolbar fullview button', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+            const fullviewBtn = env.doc.querySelector('.expandable-container .fullview-btn');
+            assert.ok(fullviewBtn !== null);
+            fullviewBtn.click();
+
+            const modal = env.doc.querySelector('.fullview-overlay');
+            assert.ok(modal !== null);
+
+            const closeBtn = modal.querySelector('.fullview-toolbar .close-btn');
+            closeBtn.click();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            assert.equal(env.doc.querySelector('.fullview-overlay'), null);
+        });
+
+        it('dispatches active heading via legacy setActiveHeading bridge fallback', async () => {
+            const env = createRenderEnvironment();
+            let legacyHeading = '';
+            env.win.markdBridge = {
+                setActiveHeading: (id) => { legacyHeading = id; }
+            };
+
+            let observerCallback = null;
+            env.win.IntersectionObserver = class {
+                constructor(cb) { observerCallback = cb; }
+                observe() {} unobserve() {} disconnect() {}
+            };
+
+            await env.win.renderMarkdown('# Legacy Heading\n\nBody');
+            env.win.setupScrollSpy();
+
+            observerCallback([
+                { isIntersecting: true, boundingClientRect: { top: 20 }, target: { id: 'legacy-heading' } }
+            ]);
+
+            assert.equal(legacyHeading, 'legacy-heading');
+        });
+
+        it('re-initializes mermaid theme when dark mode media query changes', () => {
+            const webDir = path.resolve(__dirname, '..');
+            const html = `<!DOCTYPE html><html><head></head><body><div id="content"></div></body></html>`;
+            const dom = new JSDOM(html, { runScripts: 'dangerously' });
+            const win = dom.window;
+
+            let matchMediaListener = null;
+            win.matchMedia = (query) => ({
+                matches: true,
+                media: query,
+                addEventListener: (event, fn) => { matchMediaListener = fn; },
+                removeEventListener: () => {}
+            });
+
+            let mermaidTheme = '';
+            win.mermaid = {
+                initialize: (opts) => { mermaidTheme = opts.theme; }
+            };
+
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdownItAnchor.umd.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it-task-lists.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/highlight/highlight.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.js'), 'utf8'));
+            win.eval('(function() { ' + fs.readFileSync(path.join(webDir, 'vendor/markdown-it/texmath.min.js'), 'utf8') + '\nwindow.texmath = texmath; })();');
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
+
+            const renderPath = path.join(webDir, 'src/render.js');
+            const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
+            renderScript.runInContext(dom.getInternalVMContext());
+
+            assert.equal(typeof matchMediaListener, 'function');
+            matchMediaListener({ matches: true });
+            assert.equal(mermaidTheme, 'dark');
+
+            matchMediaListener({ matches: false });
+            assert.equal(mermaidTheme, 'default');
+        });
+
+        it('initializes Markd.isReady and QWebChannel when loaded into ready document', () => {
+            const webDir = path.resolve(__dirname, '..');
+            const html = `<!DOCTYPE html><html><head></head><body><div id="content"></div></body></html>`;
+            const dom = new JSDOM(html, { runScripts: 'dangerously' });
+            const win = dom.window;
+
+            win.matchMedia = () => ({
+                matches: false,
+                addEventListener: () => {},
+                removeEventListener: () => {}
+            });
+
+            win.mermaid = {
+                initialize: () => {}
+            };
+
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdownItAnchor.umd.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/markdown-it/markdown-it-task-lists.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/highlight/highlight.min.js'), 'utf8'));
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.js'), 'utf8'));
+            win.eval('(function() { ' + fs.readFileSync(path.join(webDir, 'vendor/markdown-it/texmath.min.js'), 'utf8') + '\nwindow.texmath = texmath; })();');
+            win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
+
+            Object.defineProperty(win.document, 'readyState', { value: 'complete', configurable: true });
+
+            const renderPath = path.join(webDir, 'src/render.js');
+            const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
+            renderScript.runInContext(dom.getInternalVMContext());
+
+            assert.equal(win.Markd.isReady, true);
+        });
+
+        it('escapes and formats fenced code block when syntax language is unknown', async () => {
+            const env = createRenderEnvironment();
+            const md = '```unknownxyz\n<alert>raw code</alert>\n```';
+            await env.win.renderMarkdown(md);
+
+            const codeEl = env.doc.querySelector('#content pre.hljs code');
+            assert.ok(codeEl !== null);
+            assert.ok(codeEl.textContent.includes('<alert>raw code</alert>'));
+        });
+
+        it('handles and logs mermaid rendering exceptions gracefully', async () => {
+            const env = createRenderEnvironment();
+            env.win.mermaid.run = async () => {
+                throw new Error('Simulated mermaid parser failure');
+            };
+
+            // Should not throw or crash render pipeline
+            await env.win.renderMarkdown('```mermaid\ninvalid syntax;\n```');
+            assert.ok(env.doc.querySelector('#content') !== null);
+        });
+
+        it('handles container zoom reset, mousewheel zooming, and fullview replacement', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+
+            const container = env.doc.querySelector('.expandable-container');
+            const viewport = container.querySelector('.mermaid-viewport');
+            const zoomInBtn = container.querySelector('.zoom-in-btn');
+            const zoomResetBtn = container.querySelector('.zoom-reset-btn');
+
+            zoomInBtn.click();
+            zoomResetBtn.click();
+
+            const wheelIn = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+            wheelIn.deltaY = -100;
+            viewport.dispatchEvent(wheelIn);
+
+            const wheelOut = new env.win.Event('wheel', { bubbles: true, cancelable: true });
+            wheelOut.deltaY = 100;
+            viewport.dispatchEvent(wheelOut);
+
+            const node1 = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+            env.win.openFullView(node1, true);
+
+            const mouseMove = new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 });
+            env.doc.dispatchEvent(mouseMove);
+
+            const node2 = env.doc.querySelector('.mermaid-inner').cloneNode(true);
+            env.win.openFullView(node2, true);
+
+            env.win.closeFullView();
+        });
+
+        it('handles highlight syntax errors by falling back to escaped HTML', async () => {
+            const env = createRenderEnvironment();
+            env.win.hljs.highlight = () => {
+                throw new Error('Highlight syntax engine error');
+            };
+
+            await env.win.renderMarkdown('```javascript\nconst x = 1;\n```');
+            const codeEl = env.doc.querySelector('#content pre.hljs code');
+            assert.ok(codeEl !== null);
+            assert.ok(codeEl.textContent.includes('const x = 1;'));
         });
     });
 });

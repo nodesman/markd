@@ -4,7 +4,8 @@
   "description": "Markd web runtime and markdown renderer",
   "main": "src/render.js",
   "scripts": {
-    "test": "node --test tests/render.test.js"
+    "test": "node --test tests/render.test.js",
+    "test:coverage": "c8 --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test tests/render.test.js"
   },
   "keywords": [
     "markdown",
@@ -14,6 +15,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "c8": "^12.0.0",
     "jsdom": "^29.1.1"
   }
 }
