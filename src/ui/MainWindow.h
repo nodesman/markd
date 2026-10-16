@@ -15,6 +15,7 @@
 #include "parser/TocParser.h"
 #include "core/DocumentSession.h"
 #include "ui/StatusBarTelemetry.h"
+#include "ui/FindBarOverlay.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -36,6 +37,7 @@ public:
     TocWidget* tocWidget() const { return m_tocWidget; }
     QPushButton* sidebarToggleButton() const { return m_sidebarToggleButton; }
     StatusBarTelemetry* statusBar() const { return m_statusBar; }
+    FindBarOverlay* findBarOverlay() const { return m_findBarOverlay; }
 
     using Mode = ModeSwitcher::DocumentMode;
     void setMode(Mode mode);
@@ -53,6 +55,7 @@ public:
     void findNext();
     void findPrevious();
     void clearFind();
+    void closeFindBar();
 
     // Native Document Export & Print API
     void printToPdf(const QString& filePath);
@@ -69,6 +72,8 @@ public slots:
 
 protected:
     void changeEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
     void onOpen();
@@ -93,6 +98,7 @@ private slots:
 private:
     void setupUI();
     void setupClipboardBridge();
+    void repositionFindBarOverlay();
     void updateWindowTitle();
     void switchToEditMode();
     void switchToPreviewMode();
@@ -112,11 +118,13 @@ private:
     QPlainTextEdit* m_editor = nullptr;
     PreviewView* m_previewView = nullptr;
     StatusBarTelemetry* m_statusBar = nullptr;
+    FindBarOverlay* m_findBarOverlay = nullptr;
     MenuBuilder::Actions m_actions;
 
     int m_savedWidth = 250;
     bool m_collapsed = false;
     QString m_lastFindText;
     bool m_lastFindCaseSensitive = false;
+    bool m_findCleared = false;
     bool m_isDiskReloading = false;
 };

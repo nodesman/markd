@@ -18,6 +18,7 @@
 #include "test_web_runtime.h"
 #include "test_bridge_protocol.h"
 #include "test_status_bar.h"
+#include "test_find_bar.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -42,6 +43,7 @@ int main(int argc, char* argv[]) {
     testWorkspaceModularizationAndEngineHierarchy(app);
     testDomainSemanticActionProtocol(app);
     testStatusBarAndTelemetryEngine(app);
+    testInPageFindBarOverlay(app);
 
     return 0;
 }

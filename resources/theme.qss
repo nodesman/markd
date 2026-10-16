@@ -295,5 +295,66 @@ QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="error"] {
     color: #f85149;
 }
 
+/* In-Page Find Bar Floating Overlay (Task 8.3 / Task 19) */
+QWidget#findBarOverlay {
+    background-color: #0d1117;
+    border: 1px solid #1e242c;
+    border-radius: 6px;
+}
 
+QLineEdit#findInput {
+    background-color: transparent;
+    border: none;
+    color: #f0f6fc;
+    font-size: 12px;
+    padding: 2px 4px;
+    selection-background-color: #1f6feb;
+    selection-color: #ffffff;
+}
 
+QLabel#findMatchCountLabel {
+    background-color: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 0 4px;
+}
+
+QLabel#findMatchCountLabel[hasMatches="false"] {
+    color: #f85149;
+}
+
+QPushButton#findPrevButton,
+QPushButton#findNextButton,
+QPushButton#findCloseButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 11px;
+    padding: 0;
+    min-width: 22px;
+    max-width: 22px;
+    min-height: 22px;
+    max-height: 22px;
+}
+
+QPushButton#findPrevButton:hover:enabled,
+QPushButton#findNextButton:hover:enabled,
+QPushButton#findCloseButton:hover {
+    background-color: #161b22;
+    color: #f0f6fc;
+}
+
+QPushButton#findPrevButton:pressed:enabled,
+QPushButton#findNextButton:pressed:enabled,
+QPushButton#findCloseButton:pressed {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    color: #f0f6fc;
+}
+
+QPushButton#findPrevButton:disabled,
+QPushButton#findNextButton:disabled {
+    color: #484f58;
+}

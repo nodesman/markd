@@ -11,6 +11,8 @@
 #include <QApplication>
 #include <QScrollBar>
 #include <QSignalBlocker>
+#include <QKeyEvent>
+#include <QResizeEvent>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
@@ -297,7 +299,16 @@ void MainWindow::setupUI()
         connect(m_actions.aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
     }
 
+    m_findBarOverlay = new FindBarOverlay(this);
+    connect(m_findBarOverlay, &FindBarOverlay::queryChanged, this, [this](const QString& text) {
+        findText(text, true, m_lastFindCaseSensitive);
+    });
+    connect(m_findBarOverlay, &FindBarOverlay::findNextRequested, this, &MainWindow::findNext);
+    connect(m_findBarOverlay, &FindBarOverlay::findPreviousRequested, this, &MainWindow::findPrevious);
+    connect(m_findBarOverlay, &FindBarOverlay::closeRequested, this, &MainWindow::closeFindBar);
+
     resize(900, 650);
+    repositionFindBarOverlay();
 }
 
 void MainWindow::onSplitterMoved(int pos, int index)
@@ -565,10 +576,29 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 
     if (mode == ModeSwitcher::DocumentMode::Edit) {
         switchToEditMode();
+    }
+    if (mode == ModeSwitcher::DocumentMode::Preview) {
+        switchToPreviewMode();
+    }
+
+    if (!m_findBarOverlay || !m_findBarOverlay->isVisible() || m_lastFindText.isEmpty()) {
         return;
     }
 
-    switchToPreviewMode();
+    if (mode == ModeSwitcher::DocumentMode::Edit && m_previewView) {
+        m_previewView->clearFind();
+    }
+    if (mode == ModeSwitcher::DocumentMode::Preview && m_editor) {
+        QTextCursor cur = m_editor->textCursor();
+        cur.clearSelection();
+        m_editor->setTextCursor(cur);
+        m_editor->setExtraSelections({});
+    }
+
+    const QString activeQuery = m_lastFindText;
+    m_lastFindText.clear();
+    findText(activeQuery, true, m_lastFindCaseSensitive);
+    m_findBarOverlay->raise();
 }
 
 void MainWindow::switchToEditMode()
@@ -670,13 +700,42 @@ void MainWindow::changeEvent(QEvent* event)
     }
 }
 
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    repositionFindBarOverlay();
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Escape && m_findBarOverlay && m_findBarOverlay->isVisible()) {
+        closeFindBar();
+        event->accept();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::repositionFindBarOverlay()
+{
+    if (!m_findBarOverlay) return;
+    const int x = std::max(16, width() - m_findBarOverlay->width() - 16);
+    const int y = PlatformFrame::headerHeight() + 6;
+    m_findBarOverlay->move(x, y);
+}
+
 void MainWindow::onFindResult(int activeMatch, int totalMatches)
 {
+    if (m_findCleared) return;
+    if (m_findBarOverlay) {
+        m_findBarOverlay->updateMatchCount(activeMatch, totalMatches);
+    }
     emit findResult(activeMatch, totalMatches);
 }
 
 void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
 {
+    const bool isNewQuery = (text != m_lastFindText);
     m_lastFindText = text;
     m_lastFindCaseSensitive = caseSensitive;
 
@@ -685,75 +744,104 @@ void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
         return;
     }
 
-    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
-        if (m_previewView) {
-            m_previewView->findText(text, forward, caseSensitive);
-        }
-    } else {
-        if (m_editor) {
-            QTextDocument::FindFlags flags;
-            if (!forward) flags |= QTextDocument::FindBackward;
-            if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
-            bool found = m_editor->find(text, flags);
-            if (!found) {
-                QTextCursor cur = m_editor->textCursor();
-                cur.movePosition(forward ? QTextCursor::Start : QTextCursor::End);
-                m_editor->setTextCursor(cur);
-                found = m_editor->find(text, flags);
-            }
-            int total = 0;
-            Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
-            int idx = 0;
-            const QString& content = m_editor->toPlainText();
-            while ((idx = content.indexOf(text, idx, cs)) != -1) {
-                total++;
-                idx += text.length();
-            }
-            emit findResult(found ? 1 : 0, total);
-        }
+    m_findCleared = false;
+    if (m_findBarOverlay && m_findBarOverlay->query() != text) {
+        const QSignalBlocker blocker(m_findBarOverlay->findInput());
+        m_findBarOverlay->findInput()->setText(text);
     }
+
+    const bool inPreview = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview;
+    if (inPreview && m_previewView) {
+        m_previewView->findText(text, forward, caseSensitive);
+        return;
+    }
+
+    if (!m_editor) return;
+    const QPair<int, int> counts = FindBarOverlay::executeEditorSearch(
+        m_editor, text, forward, caseSensitive, isNewQuery, true);
+    if (m_findBarOverlay) {
+        m_findBarOverlay->updateMatchCount(counts.first, counts.second);
+    }
+    emit findResult(counts.first, counts.second);
 }
 
 void MainWindow::findNext()
 {
-    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
-        if (m_previewView) m_previewView->findNext();
-    } else {
-        if (m_editor && !m_lastFindText.isEmpty()) {
-            findText(m_lastFindText, true, m_lastFindCaseSensitive);
-        }
+    if (m_lastFindText.isEmpty()) return;
+    const bool inPreview = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview;
+    if (inPreview && m_previewView) {
+        m_previewView->findNext();
+        return;
     }
+    findText(m_lastFindText, true, m_lastFindCaseSensitive);
 }
 
 void MainWindow::findPrevious()
 {
-    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
-        if (m_previewView) m_previewView->findPrevious();
-    } else {
-        if (m_editor && !m_lastFindText.isEmpty()) {
-            findText(m_lastFindText, false, m_lastFindCaseSensitive);
-        }
+    if (m_lastFindText.isEmpty()) return;
+    const bool inPreview = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview;
+    if (inPreview && m_previewView) {
+        m_previewView->findPrevious();
+        return;
     }
+    findText(m_lastFindText, false, m_lastFindCaseSensitive);
 }
 
 void MainWindow::clearFind()
 {
     m_lastFindText.clear();
-    if (m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview) {
-        if (m_previewView) m_previewView->clearFind();
-    } else {
-        if (m_editor) {
-            QTextCursor cur = m_editor->textCursor();
-            cur.clearSelection();
-            m_editor->setTextCursor(cur);
-        }
-        emit findResult(0, 0);
+    m_findCleared = true;
+    if (m_previewView) {
+        m_previewView->clearFind();
     }
+    if (m_editor) {
+        QTextCursor cur = m_editor->textCursor();
+        cur.clearSelection();
+        m_editor->setTextCursor(cur);
+        m_editor->setExtraSelections({});
+    }
+    if (m_findBarOverlay) {
+        m_findBarOverlay->updateMatchCount(0, 0);
+    }
+    emit findResult(0, 0);
 }
 
 void MainWindow::onFind()
 {
-    findNext();
+    if (!m_findBarOverlay) return;
+    repositionFindBarOverlay();
+    QString seedText;
+    const bool inEditMode = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Edit;
+    if (inEditMode && m_editor && m_editor->textCursor().hasSelection()) {
+        const QString selected = m_editor->textCursor().selectedText();
+        if (!selected.contains(QLatin1Char('\n')) && !selected.contains(QChar(0x2029))) {
+            seedText = selected;
+        }
+    }
+    const QString previousQuery = m_findBarOverlay->query();
+    m_findBarOverlay->activate(seedText);
+    if (!m_findBarOverlay->query().isEmpty() && (seedText.isEmpty() || seedText == previousQuery)) {
+        const QString queryToRun = m_findBarOverlay->query();
+        m_lastFindText.clear();
+        findText(queryToRun, true, m_lastFindCaseSensitive);
+    }
+}
+
+void MainWindow::closeFindBar()
+{
+    if (m_findBarOverlay) {
+        m_findBarOverlay->hide();
+    }
+    clearFind();
+    activateWindow();
+    const bool inPreview = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview;
+    if (inPreview && m_previewView && m_previewView->webView()) {
+        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+    if (m_editor) {
+        m_editor->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 void MainWindow::printToPdf(const QString& filePath)
@@ -852,7 +940,8 @@ void MainWindow::reloadEditorBuffer(const QString& md)
 {
     if (!m_editor) return;
     const int scrollPosition = m_editor->verticalScrollBar()->value();
-    const int cursorPosition = m_editor->textCursor().position();
+    const QTextCursor oldCursor = m_editor->textCursor();
+    const int cursorPosition = oldCursor.hasSelection() ? oldCursor.selectionStart() : oldCursor.position();
     {
         const QSignalBlocker blocker(m_editor);
         m_editor->setPlainText(md);
@@ -872,4 +961,11 @@ void MainWindow::onDiskReloaded()
     if (m_previewView) {
         m_previewView->setMarkdown(md, /*preserveScroll=*/true);
     }
+    if (!m_findBarOverlay || !m_findBarOverlay->isVisible() || m_lastFindText.isEmpty() || !m_editor) {
+        return;
+    }
+    const QPair<int, int> counts = FindBarOverlay::executeEditorSearch(
+        m_editor, m_lastFindText, true, m_lastFindCaseSensitive, false, false);
+    m_findBarOverlay->updateMatchCount(counts.first, counts.second);
+    emit findResult(counts.first, counts.second);
 }

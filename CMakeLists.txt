@@ -54,6 +54,8 @@ set(COMMON_SOURCES
     src/ui/ModeSwitcher.cpp
     src/ui/StatusBarTelemetry.h
     src/ui/StatusBarTelemetry.cpp
+    src/ui/FindBarOverlay.h
+    src/ui/FindBarOverlay.cpp
     src/ui/MenuBuilder.h
     src/ui/MenuBuilder.cpp
     src/ui/Theme.h
