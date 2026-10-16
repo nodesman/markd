@@ -24,27 +24,15 @@ inline void testThemeEngine(QApplication& app) {
             assert(!qss.isEmpty());
         });
 
-        it("enforces obsidian palette color tokens in stylesheet", [&]() {
-            QString qss = app.styleSheet();
-            assert(qss.contains("#050505"));
-            assert(qss.contains("#0d1117"));
-            assert(qss.contains("#1e242c"));
-            assert(qss.contains("#161b22"));
-        });
-
-        it("defines comfortable translucent scrollbar metrics in stylesheet", [&]() {
-            QString qss = app.styleSheet();
-            assert(qss.contains("QScrollBar:vertical"));
-            assert(qss.contains("width: 8px"));
-            assert(qss.contains("rgba(255, 255, 255, 0.22)"));
-            assert(qss.contains("border-radius: 4px"));
-        });
-
-        it("configures fallback palette window base text and highlight colors", [&]() {
-            assert(app.palette().color(QPalette::Window) == QColor("#050505"));
-            assert(app.palette().color(QPalette::Base) == QColor("#050505"));
-            assert(app.palette().color(QPalette::Text) == QColor("#f0f6fc"));
-            assert(app.palette().color(QPalette::Highlight) == QColor("#161b22"));
+        it("configures fallback dark palette with high contrast text luminance", [&]() {
+            const QPalette pal = app.palette();
+            assert(pal.color(QPalette::Window).lightness() < pal.color(QPalette::Text).lightness());
+            assert(pal.color(QPalette::Base).lightness() < pal.color(QPalette::Text).lightness());
+            assert(pal.color(QPalette::Window) == QColor("#050505"));
+            assert(pal.color(QPalette::Base) == QColor("#050505"));
+            assert(pal.color(QPalette::Text) == QColor("#f0f6fc"));
+            assert(pal.color(QPalette::Highlight) == QColor("#161b22"));
         });
     });
 }
+

@@ -167,25 +167,27 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 #modeSwitcher {
     background-color: #0d1117;
     border: 1px solid #1e242c;
-    border-radius: 4px;
+    border-radius: 15px;
 }
 
 #modeSegmentEdit, #modeSegmentPreview {
     background-color: transparent;
     color: #8b949e;
-    border: none;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    padding: 2px 10px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0;
 }
 
 #modeSegmentEdit[active="true"], #modeSegmentPreview[active="true"] {
-    background-color: #161b22;
-    color: #f0f6fc;
+    background-color: #2d333b;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    color: #ffffff;
 }
 
 #modeSegmentEdit:hover:!checked, #modeSegmentPreview:hover:!checked {
+    background-color: rgba(255, 255, 255, 0.05);
     color: #f0f6fc;
 }
 
@@ -219,30 +221,32 @@ QSplitter::handle:horizontal {
 
 QSplitter::handle:horizontal:hover,
 QSplitter::handle:horizontal:pressed {
-    background-color: #58a6ff;
+    background-color: #30363d;
 }
 
 /* Sidebar Toggle Button (◨) Obsidian Design Tokens */
 #sidebarToggleButton {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: 5px;
     color: #8b949e;
     font-size: 13px;
     padding: 0;
 }
 
 #sidebarToggleButton:hover {
-    background: #161b22;
-    border-color: #30363d;
-    color: #c9d1d9;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid transparent;
+    border-radius: 5px;
+    color: #f0f6fc;
 }
 
 #sidebarToggleButton:pressed,
 #sidebarToggleButton:checked {
     background: #21262d;
-    border-color: #388bfd;
-    color: #58a6ff;
+    border: 1px solid #30363d;
+    border-radius: 5px;
+    color: #f0f6fc;
 }
 
 /* Bottom Status Bar & Live Reading Telemetry (Task 11) */

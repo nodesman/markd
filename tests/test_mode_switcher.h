@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cmath>
 #include "Zinsser.h"
+#include "ui/platform/PlatformFrame.h"
 #include "ui/MainWindow.h"
 #include "ui/HeaderBar.h"
 #include "ui/ModeSwitcher.h"
@@ -53,10 +54,11 @@ inline void testModeSwitcher(QApplication& app) {
 
     describe("Mode switcher interaction and state synchronization", [&]() {
         it("isolates mouse click events to transition mode to preview", [&]() {
+            QPointF rightHalfPos(switcher->width() * 0.75, switcher->height() / 2.0);
             QMouseEvent clickEvent(
                 QEvent::MouseButtonPress,
-                QPointF(100.0, 13.0),
-                QPointF(100.0, 13.0),
+                rightHalfPos,
+                rightHalfPos,
                 Qt::LeftButton,
                 Qt::LeftButton,
                 Qt::NoModifier
@@ -118,19 +120,31 @@ inline void testModeSwitcher(QApplication& app) {
             assert(std::abs(restoredSwitcherMid - restoredWindowMid) <= 1);
         });
 
-        it("enforces bracketless typography and fixed visual geometry", [&]() {
+        it("preserves top window resize clearance and survives style repolish across mode transitions", [&]() {
+            header->resize(900, 38);
+            header->updateMargins();
+            header->layout()->activate();
+            centerSlot->layout()->activate();
+
+            assert(switcher->size() == switcher->sizeHint());
+            assert(switcher->y() >= PlatformFrame::kTopResizeBuffer);
+            assert(switcher->geometry().bottom() <= header->height() - PlatformFrame::kTopResizeBuffer);
+
             QList<QPushButton*> buttons = switcher->findChildren<QPushButton*>();
             assert(buttons.size() == 2);
             for (QPushButton* btn : buttons) {
-                assert(!btn->text().contains('['));
-                assert(!btn->text().contains(']'));
+                assert(!btn->text().contains('[') && !btn->text().contains(']'));
                 assert(btn->text() == "Edit" || btn->text() == "Preview");
             }
 
-            assert(switcher->height() == 26);
-            assert(switcher->width() == 140);
-            assert(switcher->sizeHint().height() == 26);
-            assert(switcher->sizeHint().width() == 140);
+            QFont fontBeforeToggle = buttons[0]->font();
+            assert(fontBeforeToggle.weight() >= QFont::DemiBold);
+            assert(fontBeforeToggle.letterSpacing() > 0.0);
+            switcher->toggleMode();
+            for (QPushButton* btn : buttons) {
+                assert(btn->font() == fontBeforeToggle);
+            }
+            switcher->setMode(ModeSwitcher::DocumentMode::Edit);
         });
 
         it("dispatches mode transitions through direct button clicks and hit boundaries", [&]() {
@@ -147,14 +161,16 @@ inline void testModeSwitcher(QApplication& app) {
             assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Preview);
 
             // Left-half click switches to Edit mode
-            QMouseEvent leftHalfClick(QEvent::MouseButtonPress, QPointF(20.0, 13.0), QPointF(20.0, 13.0), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QPointF leftHalfPos(switcher->width() * 0.25, switcher->height() / 2.0);
+            QMouseEvent leftHalfClick(QEvent::MouseButtonPress, leftHalfPos, leftHalfPos, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
             QApplication::sendEvent(switcher, &leftHalfClick);
             assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
 
             // Right click passes through without state transition
-            QMouseEvent rightClick(QEvent::MouseButtonPress, QPointF(20.0, 13.0), QPointF(20.0, 13.0), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QMouseEvent rightClick(QEvent::MouseButtonPress, leftHalfPos, leftHalfPos, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
             QApplication::sendEvent(switcher, &rightClick);
             assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
         });
     });
 }
+

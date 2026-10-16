@@ -11,7 +11,12 @@ class TocWidget : public QWidget {
     Q_OBJECT
 
 public:
-    explicit TocWidget(QWidget* parent = nullptr);
+#if defined(Q_OS_WIN)
+    static constexpr bool kDefaultAccentBar = true;
+#else
+    static constexpr bool kDefaultAccentBar = false;
+#endif
+    explicit TocWidget(QWidget* parent = nullptr, bool drawAccentBar = kDefaultAccentBar);
     ~TocWidget() override = default;
 
     void setHeadings(const std::vector<TocItem>& items);
@@ -31,7 +36,7 @@ private slots:
     void onItemActivated(const QModelIndex& index);
 
 private:
-    void setupUI();
+    void setupUI(bool drawAccentBar);
 
     QListView* m_view = nullptr;
     QStandardItemModel* m_model = nullptr;

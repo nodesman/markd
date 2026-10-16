@@ -46,7 +46,7 @@ void MainWindow::setupUI()
 
     m_sidebarToggleButton = new SidebarToggleButton(QString::fromUtf8("◨"), this);
     m_sidebarToggleButton->setObjectName("sidebarToggleButton");
-    m_sidebarToggleButton->setFixedSize(28, 26);
+    m_sidebarToggleButton->setFixedSize(30, 28);
     m_sidebarToggleButton->setAccessibleName(tr("Toggle Table of Contents Outline"));
 #if defined(Q_OS_MACOS)
     m_sidebarToggleButton->setToolTip(tr("Toggle Outline (Cmd+\\) / F9"));

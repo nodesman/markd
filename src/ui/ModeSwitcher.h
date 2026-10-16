@@ -17,7 +17,7 @@ public:
     ~ModeSwitcher() override = default;
 
     DocumentMode currentMode() const { return m_currentMode; }
-    QSize sizeHint() const override { return QSize(140, 26); }
+    QSize sizeHint() const override { return QSize(154, 30); }
 
 public slots:
     void setMode(DocumentMode mode);

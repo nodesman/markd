@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QSplitter>
 #include "Zinsser.h"
+#include "ui/platform/PlatformFrame.h"
 #include "ui/MainWindow.h"
 #include "ui/HeaderBar.h"
 
@@ -34,24 +35,27 @@ inline void testSidebarToggleButton(QApplication& app) {
 
     describe("Top bar sidebar toggle button (◨) and global accelerators", [&]() {
 
-        it("mounts 28x26px checkable toggle button into header leading slot", [&]() {
+        it("mounts checkable toggle button into header leading slot within vertical resize bounds", [&]() {
             assert(header->leadingSlot()->layout()->indexOf(btn) != -1);
             assert(btn->isCheckable() == true);
             assert(btn->focusPolicy() == Qt::NoFocus);
             assert(btn->text() == QString::fromUtf8("◨"));
-            assert(btn->width() == 28 && btn->height() == 26);
+            assert(btn->width() >= 28 && btn->height() >= 26);
+            assert(btn->height() <= header->height() - 2 * PlatformFrame::kTopResizeBuffer);
             assert(btn->accessibleName() == "Toggle Table of Contents Outline");
         });
 
         it("traps mouse press and release events to isolate window dragging", [&]() {
-            QMouseEvent pressEvent(QEvent::MouseButtonPress, QPointF(14, 13),
-                                   btn->mapToGlobal(QPoint(14, 13)),
+            const QPoint center = btn->rect().center();
+            const QPointF centerF(center);
+            QMouseEvent pressEvent(QEvent::MouseButtonPress, centerF,
+                                   btn->mapToGlobal(center),
                                    Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
             QApplication::sendEvent(btn, &pressEvent);
             assert(pressEvent.isAccepted() == true);
 
-            QMouseEvent releaseEvent(QEvent::MouseButtonRelease, QPointF(14, 13),
-                                     btn->mapToGlobal(QPoint(14, 13)),
+            QMouseEvent releaseEvent(QEvent::MouseButtonRelease, centerF,
+                                     btn->mapToGlobal(center),
                                      Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
             QApplication::sendEvent(btn, &releaseEvent);
             assert(releaseEvent.isAccepted() == true);
@@ -62,8 +66,10 @@ inline void testSidebarToggleButton(QApplication& app) {
         });
 
         it("traps mouse double clicks to isolate window titlebar maximization", [&]() {
-            QMouseEvent dblClick(QEvent::MouseButtonDblClick, QPointF(14, 13),
-                                 btn->mapToGlobal(QPoint(14, 13)),
+            const QPoint center = btn->rect().center();
+            const QPointF centerF(center);
+            QMouseEvent dblClick(QEvent::MouseButtonDblClick, centerF,
+                                 btn->mapToGlobal(center),
                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
             QApplication::sendEvent(btn, &dblClick);
             assert(dblClick.isAccepted() == true);
@@ -72,6 +78,7 @@ inline void testSidebarToggleButton(QApplication& app) {
 
         it("balances leading and trailing flanks on cold boot without manual margin calls", [&]() {
             app.processEvents();
+            assert(header->leadingSlot()->minimumWidth() == header->trailingSlot()->minimumWidth());
             assert(header->leadingSlot()->width() == header->trailingSlot()->width());
             int centerMid = header->centerSlot()->x() + (header->centerSlot()->width() / 2);
             int windowMid = header->width() / 2;

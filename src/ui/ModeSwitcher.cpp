@@ -6,11 +6,11 @@ ModeSwitcher::ModeSwitcher(QWidget* parent)
     : QWidget(parent)
 {
     setObjectName("modeSwitcher");
-    setFixedHeight(26);
-    setFixedWidth(140);
+    setFixedHeight(30);
+    setFixedWidth(154);
 
     auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(1, 1, 1, 1);
+    layout->setContentsMargins(2, 2, 2, 2);
     layout->setSpacing(0);
 
     m_editBtn = new QPushButton("Edit", this);
@@ -59,11 +59,7 @@ void ModeSwitcher::setMode(DocumentMode mode)
 
 void ModeSwitcher::toggleMode()
 {
-    if (m_currentMode == DocumentMode::Edit) {
-        setMode(DocumentMode::Preview);
-    } else {
-        setMode(DocumentMode::Edit);
-    }
+    setMode(m_currentMode == DocumentMode::Edit ? DocumentMode::Preview : DocumentMode::Edit);
 }
 
 void ModeSwitcher::updateSegmentStyles()
@@ -71,26 +67,28 @@ void ModeSwitcher::updateSegmentStyles()
     m_editBtn->setProperty("active", m_currentMode == DocumentMode::Edit);
     m_previewBtn->setProperty("active", m_currentMode == DocumentMode::Preview);
 
-    // Refresh dynamic property styling
     m_editBtn->style()->unpolish(m_editBtn);
     m_editBtn->style()->polish(m_editBtn);
     m_previewBtn->style()->unpolish(m_previewBtn);
     m_previewBtn->style()->polish(m_previewBtn);
+
+    QFont font = m_editBtn->font();
+    font.setPixelSize(12);
+    font.setWeight(QFont::DemiBold);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0.2);
+    m_editBtn->setFont(font);
+    m_previewBtn->setFont(font);
 }
 
 void ModeSwitcher::mousePressEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::LeftButton) {
-        // SWIPE_02: Halts event bubbling to QWindow::startSystemMove()!
-        // Prevent click leaking into window drag
-        event->accept();
-        // If clicking on container directly (outside buttons), toggle mode
-        if (event->position().x() < width() / 2) {
-            setMode(DocumentMode::Edit);
-        } else {
-            setMode(DocumentMode::Preview);
-        }
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(event);
         return;
     }
-    QWidget::mousePressEvent(event);
+    event->accept();
+    DocumentMode target = (event->position().x() < width() / 2)
+        ? DocumentMode::Edit
+        : DocumentMode::Preview;
+    setMode(target);
 }

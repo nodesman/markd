@@ -7,55 +7,25 @@
 
 class TocItemDelegate : public QStyledItemDelegate {
 public:
-    explicit TocItemDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
+#if defined(Q_OS_WIN)
+    static constexpr bool kDefaultAccentBar = true;
+#else
+    static constexpr bool kDefaultAccentBar = false;
+#endif
+    explicit TocItemDelegate(QObject* parent = nullptr, bool drawAccentBar = kDefaultAccentBar)
+        : QStyledItemDelegate(parent), m_drawAccentBar(drawAccentBar) {}
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, true);
-
-        int level = index.data(Qt::UserRole + 2).toInt();
-        if (level < 1) level = 1;
+        int level = std::max(1, index.data(Qt::UserRole + 2).toInt());
         QString title = index.data(Qt::DisplayRole).toString();
-
         bool isSelected = (option.state & QStyle::State_Selected);
         bool isHovered = (option.state & QStyle::State_MouseOver);
-
-        // 1. Draw rounded row background
         QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
-        if (isSelected) {
-            painter->setBrush(QColor("#161b22"));
-            painter->setPen(Qt::NoPen);
-            painter->drawRoundedRect(rowRect, 4, 4);
-        } else if (isHovered) {
-            painter->setBrush(QColor(255, 255, 255, 12));
-            painter->setPen(Qt::NoPen);
-            painter->drawRoundedRect(rowRect, 4, 4);
-        }
-
-        // 2. Indentation: (level - 1) * 12px + 12px base margin
-        int indent = (level - 1) * 12 + 12;
-        QRect textRect = option.rect.adjusted(indent, 0, -8, 0);
-
-        // 3. Typography
-        QFont font = option.font;
-        font.setPointSize(12);
-        if (level == 1) {
-            font.setWeight(QFont::DemiBold);
-        } else {
-            font.setWeight(QFont::Normal);
-        }
-        painter->setFont(font);
-
-        if (isSelected) {
-            painter->setPen(QColor("#f0f6fc"));
-        } else if (isHovered) {
-            painter->setPen(QColor("#f0f6fc"));
-        } else {
-            painter->setPen(QColor("#8b949e"));
-        }
-
-        painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, title);
-
+        drawRowBackground(painter, rowRect, isSelected, isHovered);
+        drawWindowsAccentIndicator(painter, rowRect, isSelected);
+        drawRowText(painter, option, title, level, isSelected, isHovered);
         painter->restore();
     }
 
@@ -63,15 +33,44 @@ public:
         Q_UNUSED(index);
         return QSize(option.rect.width(), 26);
     }
+
+private:
+    bool m_drawAccentBar;
+
+    void drawRowBackground(QPainter* painter, const QRect& rowRect, bool isSelected, bool isHovered) const {
+        if (!isSelected && !isHovered) return;
+        int selectedAlpha = m_drawAccentBar ? 10 : 20;
+        painter->setBrush(QColor(255, 255, 255, isSelected ? selectedAlpha : 12));
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(rowRect, 6, 6);
+    }
+
+    void drawWindowsAccentIndicator(QPainter* painter, const QRect& rowRect, bool isSelected) const {
+        if (!m_drawAccentBar || !isSelected) return;
+        QRect accentBar(rowRect.left() + 2, rowRect.top() + 4, 3, rowRect.height() - 8);
+        painter->setBrush(QColor("#58a6ff"));
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(accentBar, 1.5, 1.5);
+    }
+
+    void drawRowText(QPainter* painter, const QStyleOptionViewItem& option, const QString& title, int level, bool isSelected, bool isHovered) const {
+        int indent = (level - 1) * 12 + 12;
+        QFont font = option.font;
+        font.setPointSize(12);
+        font.setWeight((level == 1 || isSelected) ? QFont::DemiBold : QFont::Normal);
+        painter->setFont(font);
+        painter->setPen(QColor((isSelected || isHovered) ? "#f0f6fc" : "#8b949e"));
+        painter->drawText(option.rect.adjusted(indent, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter | Qt::TextSingleLine, title);
+    }
 };
 
-TocWidget::TocWidget(QWidget* parent)
+TocWidget::TocWidget(QWidget* parent, bool drawAccentBar)
     : QWidget(parent)
 {
-    setupUI();
+    setupUI(drawAccentBar);
 }
 
-void TocWidget::setupUI()
+void TocWidget::setupUI(bool drawAccentBar)
 {
     setObjectName("tocSidebar");
     setAccessibleName(tr("Table of Contents"));
@@ -92,7 +91,7 @@ void TocWidget::setupUI()
 
     m_model = new QStandardItemModel(this);
     m_view->setModel(m_model);
-    m_view->setItemDelegate(new TocItemDelegate(this));
+    m_view->setItemDelegate(new TocItemDelegate(this, drawAccentBar));
 
     m_placeholderLabel = new QLabel(tr("No headings"), this);
     m_placeholderLabel->setObjectName("tocPlaceholderLabel");
@@ -103,7 +102,6 @@ void TocWidget::setupUI()
     layout->addWidget(m_view);
     layout->addWidget(m_placeholderLabel);
 
-    // Initial state: empty placeholder visible
     m_placeholderLabel->setVisible(true);
     m_view->setVisible(false);
 
@@ -135,7 +133,6 @@ void TocWidget::setHeadings(const std::vector<TocItem>& items)
         m_model->appendRow(stdItem);
     }
 
-    // Re-highlight active heading if still present
     if (!m_activeHeadingId.isEmpty()) {
         setActiveHeading(m_activeHeadingId);
     }
@@ -145,18 +142,13 @@ void TocWidget::setActiveHeading(const QString& headingId)
 {
     if (headingId.isEmpty()) return;
 
-    // Search model for matching heading ID
     QModelIndex targetIndex;
     for (int row = 0; row < m_model->rowCount(); ++row) {
         QModelIndex idx = m_model->index(row, 0);
-        if (idx.data(Qt::UserRole + 1).toString() == headingId) {
-            targetIndex = idx;
-            break;
-        }
+        if (idx.data(Qt::UserRole + 1).toString() == headingId) { targetIndex = idx; break; }
     }
 
     if (!targetIndex.isValid()) {
-        // Unknown heading ID safely no-ops without crashing or clearing selection
         return;
     }
 
@@ -193,5 +185,3 @@ QString TocWidget::activeHeadingTitle() const
     }
     return {};
 }
-
-

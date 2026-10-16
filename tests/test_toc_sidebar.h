@@ -12,6 +12,9 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <QImage>
+#include <QPainter>
+#include <QStyleOptionViewItem>
 #include "Zinsser.h"
 #include "ui/MainWindow.h"
 #include "parser/TocParser.h"
@@ -285,6 +288,53 @@ inline void testTocSidebarEdgeCases(QApplication& app) {
             emit tocWidget.view()->clicked(QModelIndex());
             assert(activateSpy.count() == 1);
         });
+
+        it("paints active and hovered outline rows with translucent rounded pill elevation", [&]() {
+            TocWidget pillWidget(nullptr, false);
+            pillWidget.setHeadings({{1, 1, "Architecture", "architecture"}, {2, 5, "Subheading", "subheading"}});
+            pillWidget.setActiveHeading("subheading");
+
+            auto* delegate = pillWidget.view()->itemDelegate();
+            QModelIndex h2Idx = pillWidget.view()->model()->index(1, 0);
+            assert(delegate->sizeHint(QStyleOptionViewItem(), h2Idx).height() > 0);
+
+            auto renderRow = [](QAbstractItemDelegate* del, const QModelIndex& idx, QStyle::State stateFlags) {
+                QImage canvas(200, 26, QImage::Format_ARGB32_Premultiplied);
+                canvas.fill(QColor("#0d1117"));
+                QPainter painter(&canvas);
+                QStyleOptionViewItem opt;
+                opt.rect = QRect(0, 0, 200, 26);
+                opt.state = stateFlags;
+                del->paint(&painter, opt, idx);
+                painter.end();
+                return canvas;
+            };
+
+            QImage idleImg = renderRow(delegate, h2Idx, QStyle::State_None);
+            QImage hoverImg = renderRow(delegate, h2Idx, QStyle::State_MouseOver);
+            QImage activeImg = renderRow(delegate, h2Idx, QStyle::State_Selected);
+
+            // Exterior corner (1, 1) outside rounded pill remains background color (zero rectangular selection bleed)
+            assert(QColor(idleImg.pixel(1, 1)) == QColor("#0d1117"));
+            assert(QColor(hoverImg.pixel(1, 1)) == QColor("#0d1117"));
+            assert(QColor(activeImg.pixel(1, 1)) == QColor("#0d1117"));
+
+            // Interior pill pixel (10, 13) increases monotonically in luminance (active > hover > idle)
+            QColor idlePx(idleImg.pixel(10, 13));
+            QColor hoverPx(hoverImg.pixel(10, 13));
+            QColor activePx(activeImg.pixel(10, 13));
+            assert(idlePx == QColor("#0d1117"));
+            assert(hoverPx.lightness() > idlePx.lightness());
+            assert(activePx.lightness() > hoverPx.lightness());
+
+            // Verify Windows accent bar mode (drawAccentBar = true) renders blue accent indicator on selected row
+            TocWidget accentWidget(nullptr, true);
+            accentWidget.setHeadings({{2, 5, "Subheading", "subheading"}});
+            QModelIndex accentIdx = accentWidget.view()->model()->index(0, 0);
+            QImage accentImg = renderRow(accentWidget.view()->itemDelegate(), accentIdx, QStyle::State_Selected);
+            QColor accentBarPx(accentImg.pixel(7, 13));
+            assert(accentBarPx.blue() > accentBarPx.red());
+        });
     });
 }
 
@@ -292,3 +342,4 @@ inline void testTocSidebar(QApplication& app) {
     testTocSidebarIntegration(app);
     testTocSidebarEdgeCases(app);
 }
+
