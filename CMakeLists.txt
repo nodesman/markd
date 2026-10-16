@@ -35,6 +35,8 @@ set(COMMON_SOURCES
     src/core/DocumentSession.cpp
     src/core/Converter.h
     src/core/Converter.cpp
+    src/core/HtmlClipboardProvider.h
+    src/core/HtmlClipboardProvider.cpp
     src/core/TelemetryEngine.h
     src/core/TelemetryEngine.cpp
     src/parser/TocItem.h

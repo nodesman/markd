@@ -13,6 +13,7 @@
 #include <QSignalBlocker>
 #include <QKeyEvent>
 #include <QResizeEvent>
+#include <QPointer>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, QWidget* parent)
@@ -264,18 +265,13 @@ void MainWindow::setupUI()
     if (m_actions.cutAction) {
         connect(m_actions.cutAction, &QAction::triggered, m_editor, &QPlainTextEdit::cut);
     }
-    if (m_actions.copyAction) {
-        connect(m_actions.copyAction, &QAction::triggered, m_editor, &QPlainTextEdit::copy);
-    }
     if (m_actions.copyHtmlAction) {
         connect(m_actions.copyHtmlAction, &QAction::triggered, this, &MainWindow::onCopyHtml);
     }
     if (m_actions.pasteAction) {
         connect(m_actions.pasteAction, &QAction::triggered, m_editor, &QPlainTextEdit::paste);
     }
-    if (m_actions.selectAllAction) {
-        connect(m_actions.selectAllAction, &QAction::triggered, m_editor, &QPlainTextEdit::selectAll);
-    }
+    updateActionRouting(ModeSwitcher::DocumentMode::Edit);
     if (m_actions.findAction) {
         connect(m_actions.findAction, &QAction::triggered, this, &MainWindow::onFind);
     }
@@ -568,6 +564,11 @@ void MainWindow::setupClipboardBridge()
 void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 {
     if (!m_viewportStack) return;
+
+    m_currentMode = mode;
+    ++m_clipboardOpGeneration;
+    m_isCopyingHtml = false;
+    updateActionRouting(mode);
 
     if (m_session) {
         m_session->setMode(static_cast<int>(mode));
@@ -872,17 +873,99 @@ void MainWindow::exportHtml(const QString& filePath, const std::function<void(bo
 
 void MainWindow::copyHtmlToClipboard(const std::function<void(bool)>& callback)
 {
-    if (!m_previewView) {
+    if (m_isCopyingHtml) {
         if (callback) callback(false);
         return;
     }
-    m_previewView->toHtml([callback](const QString& html) {
-        QMimeData* mimeData = new QMimeData();
-        mimeData->setHtml(html);
-        mimeData->setText(html);
-        QApplication::clipboard()->setMimeData(mimeData);
+    if (m_viewportStack && m_viewportStack->currentIndex() == 0 && m_editor) {
+        copyEditorHtmlToClipboard();
+        if (callback) callback(true);
+        return;
+    }
+    copyPreviewHtmlToClipboard(callback);
+}
+
+void MainWindow::copyEditorHtmlToClipboard()
+{
+    if (!m_editor) return;
+    QString sourceText = m_editor->textCursor().selectedText();
+    if (sourceText.isEmpty()) {
+        sourceText = m_editor->toPlainText();
+    }
+    sourceText = HtmlClipboardProvider::normalizeSelection(sourceText);
+    QMimeData* mimeData = HtmlClipboardProvider::createFromMarkdown(sourceText);
+    QClipboard* clipboard = QApplication::clipboard();
+    if (!clipboard) {
+        delete mimeData;
+        return;
+    }
+    clipboard->setMimeData(mimeData);
+    if (m_statusBar) {
+        m_statusBar->showNotification(tr("Copied as HTML"), QStringLiteral("info"), 1500);
+    }
+}
+
+void MainWindow::copyPreviewHtmlToClipboard(const std::function<void(bool)>& callback)
+{
+    if (!m_previewView || !m_session) {
+        if (callback) callback(false);
+        return;
+    }
+    m_isCopyingHtml = true;
+    const uint64_t currentGen = ++m_clipboardOpGeneration;
+    const QString fallbackMarkdown = m_session->markdown();
+    QPointer<MainWindow> self(this);
+
+    m_previewView->toHtml([self, currentGen, fallbackMarkdown, callback](const QString& rawHtml) {
+        if (!self) {
+            if (callback) callback(false);
+            return;
+        }
+        self->m_isCopyingHtml = false;
+        if (currentGen != self->m_clipboardOpGeneration || self->m_currentMode != ModeSwitcher::DocumentMode::Preview) {
+            if (callback) callback(false);
+            return;
+        }
+        QMimeData* mimeData = HtmlClipboardProvider::createFromPreviewHtml(rawHtml, fallbackMarkdown);
+        QClipboard* clipboard = QApplication::clipboard();
+        if (!clipboard) {
+            delete mimeData;
+            if (callback) callback(false);
+            return;
+        }
+        clipboard->setMimeData(mimeData);
+        if (self->m_statusBar) {
+            self->m_statusBar->showNotification(tr("Copied as HTML"), QStringLiteral("info"), 1500);
+        }
         if (callback) callback(true);
     });
+}
+
+void MainWindow::updateActionRouting(ModeSwitcher::DocumentMode mode)
+{
+    if (!m_actions.copyAction || !m_actions.selectAllAction) return;
+
+    m_actions.copyAction->disconnect();
+    m_actions.selectAllAction->disconnect();
+
+    if (mode == ModeSwitcher::DocumentMode::Edit && m_editor) {
+        connect(m_actions.copyAction, &QAction::triggered, m_editor, &QPlainTextEdit::copy);
+        connect(m_actions.selectAllAction, &QAction::triggered, m_editor, &QPlainTextEdit::selectAll);
+        return;
+    }
+
+    if (mode == ModeSwitcher::DocumentMode::Preview && m_previewView && m_previewView->webView()) {
+        connect(m_actions.copyAction, &QAction::triggered, this, [this]() {
+            if (m_previewView && m_previewView->webView()) {
+                m_previewView->webView()->triggerPageAction(QWebEnginePage::Copy);
+            }
+        });
+        connect(m_actions.selectAllAction, &QAction::triggered, this, [this]() {
+            if (m_previewView && m_previewView->webView()) {
+                m_previewView->webView()->triggerPageAction(QWebEnginePage::SelectAll);
+            }
+        });
+    }
 }
 
 void MainWindow::onPrintPdf()

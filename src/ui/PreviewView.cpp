@@ -242,7 +242,10 @@ void PreviewView::printToPdf(const QString& filePath, const QPageLayout& layout)
 
 void PreviewView::toHtml(const std::function<void(const QString&)>& callback)
 {
+    if (!callback) return;
     if (m_webView && m_webView->page()) {
         m_webView->page()->toHtml(callback);
+        return;
     }
+    callback(QString());
 }

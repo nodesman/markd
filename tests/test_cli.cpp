@@ -19,6 +19,7 @@
 #include "test_bridge_protocol.h"
 #include "test_status_bar.h"
 #include "test_find_bar.h"
+#include "test_clipboard.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -44,6 +45,7 @@ int main(int argc, char* argv[]) {
     testDomainSemanticActionProtocol(app);
     testStatusBarAndTelemetryEngine(app);
     testInPageFindBarOverlay(app);
+    testClipboardProvider(app);
 
     return 0;
 }

@@ -16,13 +16,18 @@
 #include "core/DocumentSession.h"
 #include "ui/StatusBarTelemetry.h"
 #include "ui/FindBarOverlay.h"
+#include "core/HtmlClipboardProvider.h"
+#include <cstdint>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(const QString& filePath = QString(), QWidget* parent = nullptr);
-    ~MainWindow() override = default;
+    ~MainWindow() override {
+        ++m_clipboardOpGeneration;
+        m_isCopyingHtml = false;
+    }
 
     DocumentSession* session() const { return m_session; }
     bool loadFile(const QString& filePath);
@@ -61,6 +66,12 @@ public:
     void printToPdf(const QString& filePath);
     void exportHtml(const QString& filePath, const std::function<void(bool)>& callback = nullptr);
     void copyHtmlToClipboard(const std::function<void(bool)>& callback = nullptr);
+    void copyEditorHtmlToClipboard();
+    void copyPreviewHtmlToClipboard(const std::function<void(bool)>& callback = nullptr);
+    void updateActionRouting(ModeSwitcher::DocumentMode mode);
+    bool isCopyingHtml() const { return m_isCopyingHtml; }
+    void setIsCopyingHtml(bool copying) { m_isCopyingHtml = copying; }
+    uint64_t clipboardOpGeneration() const { return m_clipboardOpGeneration; }
 
 signals:
     void sidebarToggled(bool collapsed);
@@ -127,4 +138,7 @@ private:
     bool m_lastFindCaseSensitive = false;
     bool m_findCleared = false;
     bool m_isDiskReloading = false;
+    uint64_t m_clipboardOpGeneration = 0;
+    bool m_isCopyingHtml = false;
+    ModeSwitcher::DocumentMode m_currentMode = ModeSwitcher::DocumentMode::Edit;
 };
