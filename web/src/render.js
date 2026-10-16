@@ -119,10 +119,43 @@ if (document.readyState === 'loading') {
     initQWebChannel();
 }
 
-// Global anchor navigation interception (Tier 1 WebEngine Guardrail)
+function dispatchClipboardWrite(rawCode) {
+    if (window.session && typeof window.session.copyToClipboard === 'function') {
+        window.session.copyToClipboard(rawCode);
+        return;
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(rawCode);
+    }
+}
+
+function handleCodeCopyClick(copyBtn) {
+    var card = copyBtn.closest('.code-block-card');
+    var codeEl = card ? card.querySelector('pre > code') : null;
+    if (!codeEl) return;
+    var rawCode = codeEl.textContent.replace(/\n$/, '');
+    dispatchClipboardWrite(rawCode);
+    copyBtn.textContent = 'Copied!';
+    copyBtn.classList.add('copied');
+    if (copyBtn._copyTimeoutId) {
+        clearTimeout(copyBtn._copyTimeoutId);
+    }
+    copyBtn._copyTimeoutId = setTimeout(function () {
+        copyBtn.textContent = 'Copy';
+        copyBtn.classList.remove('copied');
+        copyBtn._copyTimeoutId = null;
+    }, 1500);
+}
+
+// Global anchor navigation interception & code card copy delegation (Tier 1 WebEngine Guardrail)
 document.addEventListener('click', function (e) {
     var target = e.target;
-    if (!target) return;
+    if (!target || typeof target.closest !== 'function') return;
+    var copyBtn = target.closest('.copy-btn');
+    if (copyBtn) {
+        handleCodeCopyClick(copyBtn);
+        return;
+    }
     var anchor = target.closest('a');
     if (!anchor) return;
     var href = anchor.getAttribute('href');
@@ -169,23 +202,46 @@ if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.addHook === 'function')
     });
 }
 
+function formatCodeBlock(codeHtml, lang) {
+    var safeLang = md.utils.escapeHtml(lang);
+    return '<div class="code-block-card" data-lang="' + safeLang + '" role="region" aria-label="Code snippet: ' + safeLang + '">' +
+        '<div class="code-block-header">' +
+        '<span class="code-lang">' + safeLang + '</span>' +
+        '<button class="copy-btn" type="button" aria-label="Copy code to clipboard">Copy</button>' +
+        '</div>' +
+        '<pre class="hljs"><code>' + codeHtml + '</code></pre>' +
+        '</div>';
+}
+
+function highlightCodeBlock(str, normalizedLang) {
+    if (!hljs.getLanguage(normalizedLang)) {
+        return formatCodeBlock(md.utils.escapeHtml(str), normalizedLang);
+    }
+    try {
+        var highlighted = hljs.highlight(str, { language: normalizedLang, ignoreIllegals: true }).value;
+        return formatCodeBlock(highlighted, normalizedLang);
+    } catch (_) {
+        return formatCodeBlock(md.utils.escapeHtml(str), normalizedLang);
+    }
+}
+
 // Initialize markdown-it with plugins
 const md = window.markdownit({
     html: true,
     linkify: true,
-    typographer: true,
-    highlight: function (str, lang) {
-        if (lang === 'mermaid') return '';
-        if (lang && hljs.getLanguage(lang)) {
-            try {
-                return '<pre class="hljs"><code>' +
-                    hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-                    '</code></pre>';
-            } catch (_) {}
-        }
-        return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
-    }
+    typographer: true
 });
+
+md.renderer.rules.fence = function (tokens, idx) {
+    var token = tokens[idx];
+    var info = md.utils.unescapeAll(token.info).trim();
+    var lang = info.split(/\s+/g)[0].toLowerCase();
+    if (lang === 'mermaid') {
+        return '<pre><code class="language-mermaid">' + md.utils.escapeHtml(token.content) + '</code></pre>\n';
+    }
+    var normalizedLang = lang || 'text';
+    return highlightCodeBlock(token.content, normalizedLang) + '\n';
+};
 
 // Add anchor plugin for heading IDs with Unicode property slugification
 if (window.markdownItAnchor) {
@@ -302,7 +358,7 @@ async function executeRenderMarkdown(markdownText, options) {
     // 2. Sanitize and insert into DOM
     var clean = DOMPurify.sanitize(html, {
         ADD_TAGS: ['semantics', 'annotation'],
-        ADD_ATTR: ['target', 'encoding', 'rel'],
+        ADD_ATTR: ['target', 'encoding', 'rel', 'role', 'aria-label', 'data-lang', 'type'],
         FORBID_TAGS: ['style'],
         ALLOW_DATA_ATTR: true,
         SANITIZE_NAMED_PROPS: false,

@@ -1766,5 +1766,187 @@ describe('render.js Native Node.js Test Suite', () => {
             env.win.renderMarkdown = origRender;
         });
     });
+
+    describe('Task 8.2 Code Block Presentation Cards and Copy Action', () => {
+        it('wraps fenced code blocks in presentation card containers with normalized language badges', async () => {
+            const env = createRenderEnvironment();
+            const md =
+                '```RUST\n' +
+                'fn main() {\n' +
+                '    println!("Aram");\n' +
+                '}\n' +
+                '```\n';
+
+            await env.win.renderMarkdown(md);
+
+            const card = env.doc.querySelector('#content .code-block-card');
+            assert.ok(card !== null);
+            assert.notEqual(card.parentElement.tagName, 'PRE');
+            assert.equal(card.getAttribute('data-lang'), 'rust');
+            assert.equal(card.getAttribute('role'), 'region');
+            assert.equal(card.getAttribute('aria-label'), 'Code snippet: rust');
+
+            const header = card.querySelector('.code-block-header');
+            assert.ok(header !== null);
+
+            const langBadge = header.querySelector('.code-lang');
+            assert.ok(langBadge !== null);
+            assert.equal(langBadge.textContent, 'rust');
+            assert.ok(!langBadge.textContent.includes('['));
+            assert.ok(!langBadge.textContent.includes(']'));
+
+            const copyBtn = header.querySelector('.copy-btn');
+            assert.ok(copyBtn !== null);
+            assert.equal(copyBtn.getAttribute('type'), 'button');
+            assert.equal(copyBtn.getAttribute('aria-label'), 'Copy code to clipboard');
+            assert.equal(copyBtn.textContent, 'Copy');
+
+            const pre = card.querySelector('pre.hljs');
+            assert.ok(pre !== null);
+            const code = pre.querySelector('code');
+            assert.ok(code !== null);
+            assert.ok(code.textContent.includes('fn main()'));
+        });
+
+        it('wraps untagged fenced code blocks with default text badge and card container', async () => {
+            const env = createRenderEnvironment();
+            const md =
+                '```\n' +
+                'plain untagged snippet\n' +
+                '```\n';
+
+            await env.win.renderMarkdown(md);
+
+            const card = env.doc.querySelector('#content .code-block-card');
+            assert.ok(card !== null);
+            assert.equal(card.getAttribute('data-lang'), 'text');
+            assert.equal(card.getAttribute('role'), 'region');
+            assert.equal(card.getAttribute('aria-label'), 'Code snippet: text');
+
+            const langBadge = card.querySelector('.code-lang');
+            assert.ok(langBadge !== null);
+            assert.equal(langBadge.textContent, 'text');
+        });
+
+        it('dispatches raw code text to native bridge upon copy button activation and resets state after timeout', async () => {
+            const env = createRenderEnvironment();
+            const copiedPayloads = [];
+            env.win.session = {
+                copyToClipboard: (text) => { copiedPayloads.push(text); }
+            };
+
+            let scheduledCallback = null;
+            let scheduledDelay = 0;
+            let clearedIds = [];
+            let nextTimerId = 100;
+
+            env.win.setTimeout = (fn, delay) => {
+                scheduledCallback = fn;
+                scheduledDelay = delay;
+                nextTimerId += 1;
+                return nextTimerId;
+            };
+            env.win.clearTimeout = (id) => {
+                clearedIds.push(id);
+            };
+
+            const md =
+                '```python\n' +
+                'def compute():\n' +
+                '    return 42\n' +
+                '```\n';
+
+            await env.win.renderMarkdown(md);
+
+            const copyBtn = env.doc.querySelector('#content .code-block-card .copy-btn');
+            assert.ok(copyBtn !== null);
+
+            copyBtn.click();
+            assert.equal(copiedPayloads.length, 1);
+            assert.equal(copiedPayloads[0], 'def compute():\n    return 42');
+            assert.equal(copyBtn.textContent, 'Copied!');
+            assert.equal(copyBtn.classList.contains('copied'), true);
+            assert.equal(scheduledDelay, 1500);
+            const firstTimerId = copyBtn._copyTimeoutId;
+            assert.ok(firstTimerId);
+
+            // Rapid second click clears previous timeout before scheduling new one
+            copyBtn.click();
+            assert.equal(copiedPayloads.length, 2);
+            assert.equal(clearedIds.includes(firstTimerId), true);
+            assert.notEqual(copyBtn._copyTimeoutId, firstTimerId);
+
+            // Trigger timer completion
+            assert.equal(typeof scheduledCallback, 'function');
+            scheduledCallback();
+            assert.equal(copyBtn.textContent, 'Copy');
+            assert.equal(copyBtn.classList.contains('copied'), false);
+            assert.equal(copyBtn._copyTimeoutId, null);
+        });
+
+        it('falls back to navigator clipboard when native session bridge is absent and guards missing providers', async () => {
+            const env = createRenderEnvironment();
+            env.win.session = null;
+
+            const navPayloads = [];
+            Object.defineProperty(env.win.navigator, 'clipboard', {
+                value: {
+                    writeText: (text) => { navPayloads.push(text); }
+                },
+                configurable: true
+            });
+
+            await env.win.renderMarkdown('```js\nconst fallback = true;\n```\n');
+            const copyBtn = env.doc.querySelector('#content .code-block-card .copy-btn');
+            copyBtn.click();
+
+            assert.equal(navPayloads.length, 1);
+            assert.equal(navPayloads[0], 'const fallback = true;');
+
+            // Guard when neither session nor navigator.clipboard is available
+            Object.defineProperty(env.win.navigator, 'clipboard', {
+                value: undefined,
+                configurable: true
+            });
+            assert.doesNotThrow(() => {
+                copyBtn.click();
+            });
+
+            // Orphan .copy-btn outside .code-block-card is safely ignored
+            const orphanBtn = env.doc.createElement('button');
+            orphanBtn.className = 'copy-btn';
+            orphanBtn.textContent = 'Copy';
+            env.doc.getElementById('content').appendChild(orphanBtn);
+            orphanBtn.click();
+            assert.equal(orphanBtn.textContent, 'Copy');
+            assert.equal(orphanBtn.classList.contains('copied'), false);
+
+            // Card without pre > code is safely ignored
+            const hollowCard = env.doc.createElement('div');
+            hollowCard.className = 'code-block-card';
+            const hollowBtn = env.doc.createElement('button');
+            hollowBtn.className = 'copy-btn';
+            hollowBtn.textContent = 'Copy';
+            hollowCard.appendChild(hollowBtn);
+            env.doc.getElementById('content').appendChild(hollowCard);
+            hollowBtn.click();
+            assert.equal(hollowBtn.textContent, 'Copy');
+        });
+
+        it('preserves mermaid code blocks for diagram compilation without card wrapping', async () => {
+            const env = createRenderEnvironment();
+            const md =
+                '```MERMAID\n' +
+                'graph TD;\n' +
+                '    A-->B;\n' +
+                '```\n';
+
+            await env.win.renderMarkdown(md);
+
+            assert.equal(env.doc.querySelector('#content .code-block-card'), null);
+            assert.ok(env.doc.querySelector('#content .expandable-container .mermaid') !== null);
+        });
+    });
 });
+
 

@@ -161,6 +161,64 @@ pre code {
     font-size: 13px;
 }
 
+.code-block-card {
+    background-color: #0d1117;
+    border: 1px solid #1e242c;
+    border-radius: 6px;
+    margin: 1.4em 0;
+    overflow: hidden;
+}
+
+.code-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 32px;
+    padding: 0 12px;
+    background-color: #161b22;
+    border-bottom: 1px solid #1e242c;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.code-block-card pre {
+    margin: 0;
+    border-radius: 0;
+    border: none;
+}
+
+.code-lang {
+    font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.copy-btn {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.copy-btn:hover,
+.copy-btn:focus-visible {
+    background-color: #30363d;
+    color: #f0f6fc;
+    outline: none;
+}
+
+.copy-btn.copied {
+    background-color: #238636;
+    border-color: #2ea043;
+    color: #ffffff;
+}
+
 /* Blockquotes */
 blockquote {
     border-left: 4px solid var(--blockquote-border);
@@ -563,8 +621,16 @@ del {
 
     .expandable-toolbar,
     .table-expand-btn,
-    .fullview-overlay {
+    .fullview-overlay,
+    .copy-btn {
         display: none !important;
+    }
+
+    .code-block-card,
+    .code-block-header,
+    .code-block-card pre.hljs {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 
     pre {
@@ -594,7 +660,8 @@ del {
 
     .mermaid-viewport,
     .expandable-container,
-    .diagram-img {
+    .diagram-img,
+    .code-block-card {
         break-inside: avoid;
         page-break-inside: avoid;
     }

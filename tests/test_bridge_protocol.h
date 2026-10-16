@@ -3,6 +3,7 @@
 
 #include <QSignalSpy>
 #include <QJsonObject>
+#include <QClipboard>
 #include <QTest>
 #include <QDir>
 #include <QDateTime>
@@ -446,5 +447,21 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             assert(!editBtn->hasFocus());
             assert(win.editor()->hasFocus());
         });
+
+        it("copies text to system clipboard and emits transient status telemetry via bridge", [&]() {
+            MainWindow win;
+            win.resize(1000, 650);
+            win.show();
+            app.processEvents();
+
+            win.session()->copyToClipboard("fn main() {}");
+            app.processEvents();
+
+            assert(QApplication::clipboard()->text() == "fn main() {}");
+            assert(win.statusBar()->notificationLabel() != nullptr);
+            assert(win.statusBar()->notificationLabel()->isVisible());
+            assert(win.statusBar()->notificationLabel()->text() == "Copied to clipboard");
+        });
     });
 }
+
