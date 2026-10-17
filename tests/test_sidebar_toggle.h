@@ -56,6 +56,10 @@ inline void testSidebarToggleButton(QApplication& app) {
             assert(!pix.isNull());
             btn->setEnabled(true);
             btn->setChecked(true);
+
+            // Relational Containment Invariant: Leading slot must accommodate safe margin + button width without clipping
+            const int leftMargin = header->leadingSlot()->contentsMargins().left();
+            assert(header->leadingSlot()->width() >= leftMargin + btn->width());
         });
 
         it("mounts trailing export and find utility actions within 32x28px plate bounds", [&]() {
@@ -68,6 +72,10 @@ inline void testSidebarToggleButton(QApplication& app) {
             assert(findBtn != nullptr);
             assert(findBtn->width() == 32 && findBtn->height() == 28);
             assert(findBtn->accessibleName() == "Find in Document");
+
+            // Relational Containment Invariant: Trailing slot must accommodate right margin + child buttons
+            const int rightMargin = header->trailingSlot()->contentsMargins().right();
+            assert(header->trailingSlot()->width() >= rightMargin + exportBtn->width() + findBtn->width());
         });
 
         it("traps mouse press and release events to isolate window dragging", [&]() {
