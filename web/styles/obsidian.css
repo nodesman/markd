@@ -90,8 +90,11 @@ body {
 }
 
 #content > h1:first-child,
+#content > h1:first-of-type,
 #markd-content > h1:first-child,
-.markdown-rendered > h1:first-child {
+#markd-content > h1:first-of-type,
+.markdown-rendered > h1:first-child,
+.markdown-rendered > h1:first-of-type {
     margin-top: 0;
     padding-bottom: 12px;
     border-bottom: 1px solid #21262d;

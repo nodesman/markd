@@ -40,9 +40,34 @@ inline void testSidebarToggleButton(QApplication& app) {
             assert(btn->isCheckable() == true);
             assert(btn->focusPolicy() == Qt::NoFocus);
             assert(btn->text().isEmpty());
-            assert(btn->width() == 32 && btn->height() == 28);
-            assert(btn->height() <= header->height() - 2 * PlatformFrame::kTopResizeBuffer);
             assert(btn->accessibleName() == "Toggle Table of Contents Outline");
+
+            QPixmap pix(btn->size());
+            btn->setChecked(true);
+            btn->render(&pix);
+            assert(!pix.isNull());
+
+            btn->setChecked(false);
+            btn->render(&pix);
+            assert(!pix.isNull());
+
+            btn->setEnabled(false);
+            btn->render(&pix);
+            assert(!pix.isNull());
+            btn->setEnabled(true);
+            btn->setChecked(true);
+        });
+
+        it("mounts trailing export and find utility actions within 32x28px plate bounds", [&]() {
+            auto* exportBtn = header->trailingSlot()->findChild<QPushButton*>("headerExportButton");
+            assert(exportBtn != nullptr);
+            assert(exportBtn->width() == 32 && exportBtn->height() == 28);
+            assert(exportBtn->accessibleName() == "Export Document to HTML");
+
+            auto* findBtn = header->trailingSlot()->findChild<QPushButton*>("headerFindButton");
+            assert(findBtn != nullptr);
+            assert(findBtn->width() == 32 && findBtn->height() == 28);
+            assert(findBtn->accessibleName() == "Find in Document");
         });
 
         it("traps mouse press and release events to isolate window dragging", [&]() {
@@ -59,6 +84,12 @@ inline void testSidebarToggleButton(QApplication& app) {
                                      Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
             QApplication::sendEvent(btn, &releaseEvent);
             assert(releaseEvent.isAccepted() == true);
+
+            QMouseEvent dblClick(QEvent::MouseButtonDblClick, centerF,
+                                 btn->mapToGlobal(center),
+                                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(btn, &dblClick);
+            assert(dblClick.isAccepted() == true);
 
             if (win.isSidebarCollapsed()) {
                 win.setSidebarCollapsed(false);

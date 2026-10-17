@@ -236,7 +236,8 @@ QSplitter::handle:horizontal:pressed {
     padding: 0;
 }
 
-#sidebarToggleButton:hover {
+#sidebarToggleButton:hover,
+#sidebarToggleButton:checked:hover {
     background: #21262d;
     border: 1px solid #30363d;
     border-radius: 6px;

@@ -128,12 +128,16 @@ void HeaderBar::balanceFlanks()
 {
     // Dynamic mathematical true-window centering:
     // We counterbalance flanking spacers so that centerSlot is locked precisely to windowWidth / 2.
-    int leftTaken = m_leadingSlot->sizeHint().width();
+    int leftTaken = m_leadingSlot->layout()
+        ? m_leadingSlot->layout()->sizeHint().width()
+        : m_leadingSlot->sizeHint().width();
     if (m_leadingSlot->contentsMargins().left() > leftTaken) {
         leftTaken = m_leadingSlot->contentsMargins().left();
     }
 
-    int rightTaken = m_trailingSlot->sizeHint().width();
+    int rightTaken = m_trailingSlot->layout()
+        ? m_trailingSlot->layout()->sizeHint().width()
+        : m_trailingSlot->sizeHint().width();
     if (m_trailingSlot->contentsMargins().right() > rightTaken) {
         rightTaken = m_trailingSlot->contentsMargins().right();
     }

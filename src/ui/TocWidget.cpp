@@ -76,7 +76,7 @@ void TocWidget::setupUI(bool drawAccentBar)
     setAccessibleName(tr("Table of Contents"));
 
     QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 8, 0, 8);
+    layout->setContentsMargins(0, 12, 0, 8);
     layout->setSpacing(0);
 
     m_view = new QListView(this);

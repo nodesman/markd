@@ -69,6 +69,7 @@ void MainWindow::setupUI()
         auto* exportBtn = new QPushButton(this);
         exportBtn->setObjectName("headerExportButton");
         exportBtn->setFixedSize(32, 28);
+        exportBtn->setAccessibleName(tr("Export Document to HTML"));
         exportBtn->setToolTip(tr("Export to HTML…"));
         exportBtn->setText(QString::fromUtf8("↑"));
         exportBtn->setFocusPolicy(Qt::NoFocus);
@@ -78,6 +79,7 @@ void MainWindow::setupUI()
         auto* findBtn = new QPushButton(this);
         findBtn->setObjectName("headerFindButton");
         findBtn->setFixedSize(32, 28);
+        findBtn->setAccessibleName(tr("Find in Document"));
         findBtn->setToolTip(tr("Find in Document"));
         findBtn->setText(QString::fromUtf8("🔍"));
         findBtn->setFocusPolicy(Qt::NoFocus);

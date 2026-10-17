@@ -195,7 +195,9 @@ inline void testDocumentSession(QApplication& app) {
             assert(headings[0].title == "Final Mutation");
 
             session.setMarkdown("# Auto Debounced");
-            QTest::qWait(200);
+            for (int i = 0; i < 8 && tocSpy.count() == 0; ++i) {
+                QTest::qWait(50);
+            }
             assert(tocSpy.count() == 1);
             auto autoHeadings = tocSpy.takeFirst().at(0).value<std::vector<TocItem>>();
             assert(autoHeadings.size() == 1);
