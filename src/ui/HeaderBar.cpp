@@ -84,6 +84,7 @@ void HeaderBar::setupUI()
     auto* leadingLayout = new QHBoxLayout(m_leadingSlot);
     leadingLayout->setContentsMargins(0, 0, 0, 0);
     leadingLayout->setSpacing(0);
+    leadingLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     m_leftSpacer = new QWidget(this);
     m_leftSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -128,19 +129,17 @@ void HeaderBar::balanceFlanks()
 {
     // Dynamic mathematical true-window centering:
     // We counterbalance flanking spacers so that centerSlot is locked precisely to windowWidth / 2.
-    int leftTaken = m_leadingSlot->layout()
+    int leftContent = m_leadingSlot->layout()
         ? m_leadingSlot->layout()->sizeHint().width()
-        : m_leadingSlot->sizeHint().width();
-    if (m_leadingSlot->contentsMargins().left() > leftTaken) {
-        leftTaken = m_leadingSlot->contentsMargins().left();
-    }
+        : 0;
+    int leftMargins = m_leadingSlot->contentsMargins().left() + m_leadingSlot->contentsMargins().right();
+    int leftTaken = leftMargins + leftContent;
 
-    int rightTaken = m_trailingSlot->layout()
+    int rightContent = m_trailingSlot->layout()
         ? m_trailingSlot->layout()->sizeHint().width()
-        : m_trailingSlot->sizeHint().width();
-    if (m_trailingSlot->contentsMargins().right() > rightTaken) {
-        rightTaken = m_trailingSlot->contentsMargins().right();
-    }
+        : 0;
+    int rightMargins = m_trailingSlot->contentsMargins().left() + m_trailingSlot->contentsMargins().right();
+    int rightTaken = rightMargins + rightContent;
 
     int flank = std::max(leftTaken, rightTaken);
     m_leadingSlot->setFixedWidth(flank);
