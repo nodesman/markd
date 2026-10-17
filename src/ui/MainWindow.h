@@ -99,6 +99,7 @@ private slots:
     void onZoomOut();
     void onActualSize();
     void onAbout();
+    void onOpenShowcase();
     void onModeChanged(ModeSwitcher::DocumentMode mode);
     void onSplitterMoved(int pos, int index);
     void onHeadingActivated(const QString& id);

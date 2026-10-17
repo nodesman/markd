@@ -47,9 +47,9 @@ void MainWindow::setupUI()
     m_headerBar = new HeaderBar(this);
     rootLayout->addWidget(m_headerBar);
 
-    m_sidebarToggleButton = new SidebarToggleButton(QString::fromUtf8("◨"), this);
+    m_sidebarToggleButton = new SidebarToggleButton(this);
     m_sidebarToggleButton->setObjectName("sidebarToggleButton");
-    m_sidebarToggleButton->setFixedSize(30, 28);
+    m_sidebarToggleButton->setFixedSize(32, 28);
     m_sidebarToggleButton->setAccessibleName(tr("Toggle Table of Contents Outline"));
 #if defined(Q_OS_MACOS)
     m_sidebarToggleButton->setToolTip(tr("Toggle Outline (Cmd+\\) / F9"));
@@ -60,6 +60,31 @@ void MainWindow::setupUI()
     m_sidebarToggleButton->setCheckable(true);
     m_sidebarToggleButton->setChecked(true);
     m_headerBar->leadingSlot()->layout()->addWidget(m_sidebarToggleButton);
+
+    auto* trailingLayout = m_headerBar->trailingSlot()->layout();
+    if (trailingLayout) {
+        trailingLayout->setSpacing(4);
+        trailingLayout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        auto* exportBtn = new QPushButton(this);
+        exportBtn->setObjectName("headerExportButton");
+        exportBtn->setFixedSize(32, 28);
+        exportBtn->setToolTip(tr("Export to HTML…"));
+        exportBtn->setText(QString::fromUtf8("↑"));
+        exportBtn->setFocusPolicy(Qt::NoFocus);
+        connect(exportBtn, &QPushButton::clicked, this, &MainWindow::onExportHtml);
+        trailingLayout->addWidget(exportBtn);
+
+        auto* findBtn = new QPushButton(this);
+        findBtn->setObjectName("headerFindButton");
+        findBtn->setFixedSize(32, 28);
+        findBtn->setToolTip(tr("Find in Document"));
+        findBtn->setText(QString::fromUtf8("🔍"));
+        findBtn->setFocusPolicy(Qt::NoFocus);
+        connect(findBtn, &QPushButton::clicked, this, &MainWindow::onFind);
+        trailingLayout->addWidget(findBtn);
+    }
+
     m_headerBar->balanceFlanks();
 
     m_modeSwitcher = new ModeSwitcher(m_headerBar->centerSlot());
@@ -293,6 +318,9 @@ void MainWindow::setupUI()
     // Help Action
     if (m_actions.aboutAction) {
         connect(m_actions.aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
+    }
+    if (m_actions.openShowcaseAction) {
+        connect(m_actions.openShowcaseAction, &QAction::triggered, this, &MainWindow::onOpenShowcase);
     }
 
     m_findBarOverlay = new FindBarOverlay(this);
@@ -541,6 +569,22 @@ void MainWindow::onAbout()
            "<p>High-performance native Markdown viewer and editor.</p>"
            "<p>Engineered for command-line developers and power users.</p>")
     );
+}
+
+void MainWindow::onOpenShowcase()
+{
+    QFile file(":/showcase.md");
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        file.setFileName(":/resources/showcase.md");
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            return;
+        }
+    }
+    const QString content = QString::fromUtf8(file.readAll());
+    file.close();
+    if (m_session) {
+        m_session->setMarkdown(content);
+    }
 }
 
 void MainWindow::setMode(Mode mode)

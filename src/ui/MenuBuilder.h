@@ -36,6 +36,7 @@ public:
         // Help / App
         QAction* aboutAction = nullptr;
         QAction* checkUpdatesAction = nullptr;
+        QAction* openShowcaseAction = nullptr;
     };
 
     // Builds and attaches standard File, Edit, View, and Help menus to the menuBar.

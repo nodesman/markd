@@ -40,8 +40,8 @@ inline void testModeSwitcher(QApplication& app) {
             assert(switcher->currentMode() == ModeSwitcher::DocumentMode::Edit);
         });
 
-        it("aligns midpoints to window center within single-pixel tolerance", [&]() {
-            header->resize(900, 38);
+        it("locks center slot precisely to window midpoint across dynamic resizes", [&]() {
+            header->resize(900, 50);
             header->updateMargins();
             header->layout()->activate();
             centerSlot->layout()->activate();
@@ -120,14 +120,15 @@ inline void testModeSwitcher(QApplication& app) {
             assert(std::abs(restoredSwitcherMid - restoredWindowMid) <= 1);
         });
 
-        it("preserves top window resize clearance and survives style repolish across mode transitions", [&]() {
-            header->resize(900, 38);
+        it("centers mode switcher vertically with 10px breathing margins and preserves top resize clearance", [&]() {
+            header->resize(900, 50);
             header->updateMargins();
             header->layout()->activate();
             centerSlot->layout()->activate();
 
             assert(switcher->size() == switcher->sizeHint());
             assert(switcher->y() >= PlatformFrame::kTopResizeBuffer);
+            assert(switcher->y() == 10);
             assert(switcher->geometry().bottom() <= header->height() - PlatformFrame::kTopResizeBuffer);
 
             QList<QPushButton*> buttons = switcher->findChildren<QPushButton*>();

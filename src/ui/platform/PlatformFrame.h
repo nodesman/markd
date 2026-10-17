@@ -12,7 +12,7 @@ struct PlatformSafeArea {
 
 class PlatformFrame {
 public:
-    static constexpr int kHeaderHeight = 38;
+    static constexpr int kHeaderHeight = 50;
     static constexpr int kTopResizeBuffer = 4;
 
     static PlatformSafeArea safeArea(const QWidget* window);

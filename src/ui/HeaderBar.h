@@ -14,7 +14,10 @@ public:
     explicit SidebarToggleButton(const QString& text, QWidget* parent = nullptr);
     ~SidebarToggleButton() override = default;
 
+    QSize sizeHint() const override { return QSize(32, 28); }
+
 protected:
+    void paintEvent(QPaintEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
 };
 

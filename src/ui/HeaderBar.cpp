@@ -1,16 +1,61 @@
 #include "ui/HeaderBar.h"
 #include <QHBoxLayout>
 #include <QWindow>
+#include <QPainter>
+#include <QStyleOptionButton>
+#include <QStyle>
 #include <algorithm>
 
 SidebarToggleButton::SidebarToggleButton(QWidget* parent)
     : QPushButton(parent)
 {
+    setAttribute(Qt::WA_Hover, true);
+    setFixedSize(32, 28);
 }
 
 SidebarToggleButton::SidebarToggleButton(const QString& text, QWidget* parent)
     : QPushButton(text, parent)
 {
+    setAttribute(Qt::WA_Hover, true);
+    setFixedSize(32, 28);
+}
+
+void SidebarToggleButton::paintEvent(QPaintEvent* event)
+{
+    Q_UNUSED(event);
+    QStyleOptionButton opt;
+    initStyleOption(&opt);
+    opt.text.clear();
+    opt.icon = QIcon();
+
+    QPainter painter(this);
+    style()->drawControl(QStyle::CE_PushButtonBevel, &opt, &painter, this);
+
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    QColor iconColor("#8b949e");
+    if (underMouse()) {
+        iconColor = QColor("#f0f6fc");
+    }
+    if (isDown() || isChecked()) {
+        iconColor = QColor("#f0f6fc");
+    }
+    if (!isEnabled()) {
+        iconColor = QColor("#484f58");
+    }
+
+    const QRectF outerRect(9.0, 8.0, 14.0, 12.0);
+    const qreal cornerRadius = 2.0;
+
+    QPen pen(iconColor, 1.25);
+    pen.setJoinStyle(Qt::RoundJoin);
+    pen.setCapStyle(Qt::RoundCap);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(outerRect, cornerRadius, cornerRadius);
+
+    const qreal splitX = outerRect.left() + 4.5;
+    painter.drawLine(QPointF(splitX, outerRect.top()), QPointF(splitX, outerRect.bottom()));
 }
 
 void SidebarToggleButton::mouseDoubleClickEvent(QMouseEvent* event)
@@ -46,7 +91,7 @@ void HeaderBar::setupUI()
     m_centerSlot = new QWidget(this);
     m_centerSlot->setObjectName("headerCenterSlot");
     auto* centerLayout = new QHBoxLayout(m_centerSlot);
-    centerLayout->setContentsMargins(0, 0, 0, 0);
+    centerLayout->setContentsMargins(0, 10, 0, 10);
     centerLayout->setSpacing(0);
     centerLayout->setAlignment(Qt::AlignCenter);
 
@@ -83,10 +128,6 @@ void HeaderBar::balanceFlanks()
 {
     // Dynamic mathematical true-window centering:
     // We counterbalance flanking spacers so that centerSlot is locked precisely to windowWidth / 2.
-    // Width consumed on left = leadingSlot width (including safe area margin)
-    // Width consumed on right = trailingSlot width (including safe area margin)
-    // Flank offset ensures the two expanding sides keep the centerSlot centered.
-    // If leading and trailing natural widths differ, we can equalize spacer balance or minimum widths.
     int leftTaken = m_leadingSlot->sizeHint().width();
     if (m_leadingSlot->contentsMargins().left() > leftTaken) {
         leftTaken = m_leadingSlot->contentsMargins().left();
@@ -98,8 +139,8 @@ void HeaderBar::balanceFlanks()
     }
 
     int flank = std::max(leftTaken, rightTaken);
-    m_leadingSlot->setMinimumWidth(flank);
-    m_trailingSlot->setMinimumWidth(flank);
+    m_leadingSlot->setFixedWidth(flank);
+    m_trailingSlot->setFixedWidth(flank);
 }
 
 void HeaderBar::resizeEvent(QResizeEvent* event)

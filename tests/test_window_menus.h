@@ -113,6 +113,7 @@ inline void testWindowAndMenuIntegrity() {
 
             assert(actions.aboutAction != nullptr);
             assert(actions.checkUpdatesAction != nullptr);
+            assert(actions.openShowcaseAction != nullptr);
 
             // Verify Menus
             QList<QAction*> menus = menuBar.actions();
@@ -240,6 +241,16 @@ inline void testWindowAndMenuIntegrity() {
                 }
             });
             QMetaObject::invokeMethod(&win, "onAbout");
+        });
+
+        it("loads canonical showcase document upon demo showcase action trigger", [&]() {
+            MainWindow win;
+            QAction* showcaseAct = win.findChild<QAction*>("action_open_showcase");
+            assert(showcaseAct != nullptr);
+            showcaseAct->trigger();
+            assert(win.documentBuffer().contains("Quantum State Vectors"));
+            assert(win.documentBuffer().contains("$$E(x_i || y) = \\sum(e^{i\\pi} + e^{i-1})$$"));
+            assert(win.documentBuffer().contains("fn main()"));
         });
 
         it("dismisses native file dialog invocations without blocking", [&]() {

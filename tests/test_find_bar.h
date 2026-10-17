@@ -37,7 +37,7 @@ inline void testInPageFindBarOverlay(QApplication& app) {
             assert(overlay->width() == 320);
             assert(overlay->height() == 34);
             assert(overlay->x() == win.width() - 336);
-            assert(overlay->y() == 44);
+            assert(overlay->y() == 56);
             assert(overlay->y() >= win.headerBar()->geometry().bottom());
             assert(overlay->geometry().bottom() < win.statusBar()->y());
 
@@ -50,7 +50,7 @@ inline void testInPageFindBarOverlay(QApplication& app) {
             win.resize(1200, 800);
             app.processEvents();
             assert(overlay->x() == 1200 - 336);
-            assert(overlay->y() == 44);
+            assert(overlay->y() == 56);
 
             const QPoint center = overlay->rect().center();
             QMouseEvent pressEv(QEvent::MouseButtonPress, center, overlay->mapToGlobal(center), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);

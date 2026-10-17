@@ -33,14 +33,14 @@ inline void testSidebarToggleButton(QApplication& app) {
     auto* toggleAct = win.findChild<QAction*>("action_toggle_sidebar");
     assert(toggleAct != nullptr);
 
-    describe("Top bar sidebar toggle button (◨) and global accelerators", [&]() {
+    describe("Top bar sidebar toggle button and global accelerators", [&]() {
 
-        it("mounts checkable toggle button into header leading slot within vertical resize bounds", [&]() {
+        it("paints tactile icon plate with 32x28px bounds", [&]() {
             assert(header->leadingSlot()->layout()->indexOf(btn) != -1);
             assert(btn->isCheckable() == true);
             assert(btn->focusPolicy() == Qt::NoFocus);
-            assert(btn->text() == QString::fromUtf8("◨"));
-            assert(btn->width() >= 28 && btn->height() >= 26);
+            assert(btn->text().isEmpty());
+            assert(btn->width() == 32 && btn->height() == 28);
             assert(btn->height() <= header->height() - 2 * PlatformFrame::kTopResizeBuffer);
             assert(btn->accessibleName() == "Toggle Table of Contents Outline");
         });

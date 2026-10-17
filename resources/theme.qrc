@@ -2,4 +2,10 @@
     <qresource prefix="/theme">
         <file>theme.qss</file>
     </qresource>
+    <qresource prefix="/">
+        <file>showcase.md</file>
+    </qresource>
+    <qresource prefix="/resources">
+        <file>showcase.md</file>
+    </qresource>
 </RCC>

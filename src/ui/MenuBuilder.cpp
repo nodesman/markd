@@ -197,5 +197,10 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
     actions.checkUpdatesAction->setMenuRole(QAction::ApplicationSpecificRole);
     helpMenu->addAction(actions.checkUpdatesAction);
 
+    // Open Demo Showcase
+    actions.openShowcaseAction = new QAction(QObject::tr("Open Demo &Showcase"), parent);
+    actions.openShowcaseAction->setObjectName("action_open_showcase");
+    helpMenu->addAction(actions.openShowcaseAction);
+
     return actions;
 }

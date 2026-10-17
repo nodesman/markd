@@ -52,7 +52,7 @@ QString Converter::toFullHtmlDocument(const QString& markdown)
         "    <link rel=\"stylesheet\" href=\"qrc:/web/vendor/katex/katex.min.css\">\n"
         "</head>\n"
         "<body style=\"background-color: #050505;\">\n"
-        "    <article id=\"content\">\n"
+        "    <article id=\"content\" class=\"markdown-rendered\">\n"
         "%1\n"
         "    </article>\n"
         "</body>\n"

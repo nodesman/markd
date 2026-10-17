@@ -16,8 +16,8 @@ inline void testPlatformFrame(QApplication& app) {
     Q_UNUSED(app);
 
     describe("Platform frame geometry and safe area contracts", [&]() {
-        it("enforces thirty-eight pixel uniform header height", [&]() {
-            assert(PlatformFrame::headerHeight() == 38);
+        it("configures 50px header height with 4px top resize buffer", [&]() {
+            assert(PlatformFrame::headerHeight() == 50);
         });
 
         it("adjusts safe area margins between windowed and fullscreen states", [&]() {
@@ -42,13 +42,13 @@ inline void testPlatformFrame(QApplication& app) {
             assert(PlatformFrame::isDraggableRegion(QPoint(100, 2)) == false);
             assert(PlatformFrame::isDraggableRegion(QPoint(100, 4)) == false);
 
-            // y > 4 && y <= 38: draggable header region
+            // y > 4 && y <= 50: draggable header region
             assert(PlatformFrame::isDraggableRegion(QPoint(100, 5)) == true);
             assert(PlatformFrame::isDraggableRegion(QPoint(100, 10)) == true);
-            assert(PlatformFrame::isDraggableRegion(QPoint(100, 38)) == true);
+            assert(PlatformFrame::isDraggableRegion(QPoint(100, 50)) == true);
 
-            // y > 38: below header, non-draggable
-            assert(PlatformFrame::isDraggableRegion(QPoint(100, 39)) == false);
+            // y > 50: below header, non-draggable
+            assert(PlatformFrame::isDraggableRegion(QPoint(100, 51)) == false);
             assert(PlatformFrame::isDraggableRegion(QPoint(100, 100)) == false);
         });
 
@@ -58,13 +58,13 @@ inline void testPlatformFrame(QApplication& app) {
             HeaderBar* header = win.headerBar();
             assert(header != nullptr);
             assert(header->objectName() == "windowHeaderBar");
-            assert(header->height() == 38);
+            assert(header->height() == 50);
 
             assert(header->leadingSlot() != nullptr);
             assert(header->centerSlot() != nullptr);
             assert(header->trailingSlot() != nullptr);
 
-            header->resize(900, 38);
+            header->resize(900, 50);
             header->updateMargins();
 
 #if defined(Q_OS_MACOS)

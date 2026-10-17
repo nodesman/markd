@@ -10,8 +10,8 @@ QMainWindow, QWidget#rootCanvas {
 #windowHeaderBar {
     background-color: #050505;
     border-bottom: 1px solid #1e242c;
-    min-height: 38px;
-    max-height: 38px;
+    min-height: 50px;
+    max-height: 50px;
 }
 
 /* Editor and Viewport background */
@@ -197,13 +197,16 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     border-right: 1px solid #1e242c;
 }
 
-#tocView {
+#tocView,
+QListView#tocView,
+QTreeView#tocView {
     background-color: transparent;
     border: none;
     outline: none;
     color: #8b949e;
     selection-background-color: #161b22;
     selection-color: #f0f6fc;
+    padding-top: 12px;
 }
 
 #tocPlaceholderLabel {
@@ -224,28 +227,52 @@ QSplitter::handle:horizontal:pressed {
     background-color: #30363d;
 }
 
-/* Sidebar Toggle Button (◨) Obsidian Design Tokens */
+/* Sidebar Toggle Button Tactile Plate (Task 8.4) */
 #sidebarToggleButton {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 5px;
+    border-radius: 6px;
     color: #8b949e;
-    font-size: 13px;
     padding: 0;
 }
 
 #sidebarToggleButton:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid transparent;
-    border-radius: 5px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
     color: #f0f6fc;
 }
 
 #sidebarToggleButton:pressed,
 #sidebarToggleButton:checked {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #f0f6fc;
+}
+
+/* HeaderBar Trailing Utility Buttons */
+#headerExportButton,
+#headerFindButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: #8b949e;
+    font-size: 13px;
+    padding: 0;
+}
+
+#headerExportButton:hover,
+#headerFindButton:hover {
     background: #21262d;
     border: 1px solid #30363d;
-    border-radius: 5px;
+    color: #f0f6fc;
+}
+
+#headerExportButton:pressed,
+#headerFindButton:pressed {
+    background: #161b22;
+    border: 1px solid #30363d;
     color: #f0f6fc;
 }
 

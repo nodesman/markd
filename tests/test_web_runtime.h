@@ -110,5 +110,16 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
             assert(QFile::exists(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2"));
             assert(QFileInfo(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2").size() > 0);
         });
+
+        it("enforces 760px maximum reading width with 40px top canvas padding", [&]() {
+            QFile cssFile(":/web/styles/obsidian.css");
+            assert(cssFile.open(QIODevice::ReadOnly | QIODevice::Text));
+            QString css = QString::fromUtf8(cssFile.readAll());
+            cssFile.close();
+            assert(css.contains("max-width: 760px;"));
+            assert(css.contains("padding: 40px 48px 64px 48px;"));
+            assert(css.contains("#markd-content"));
+            assert(css.contains("font-size: 2.2rem;"));
+        });
     });
 }
