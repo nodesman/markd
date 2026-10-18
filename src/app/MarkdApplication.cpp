@@ -18,7 +18,10 @@ MarkdApplication* MarkdApplication::instance() {
 }
 
 MainWindow* MarkdApplication::createWindow(const QString& filePath) {
-    auto* window = new MainWindow(filePath);
+    const bool hasFile = !filePath.isEmpty();
+    auto* window = new MainWindow(filePath,
+                                  hasFile ? MainWindow::Mode::Preview : MainWindow::Mode::Edit,
+                                  hasFile);
     registerWindow(window);
     window->show();
     window->raise();
@@ -57,6 +60,8 @@ MainWindow* MarkdApplication::openFileInWindow(const QString& filePath) {
         if (ptr) {
             if (ptr->currentFilePath().isEmpty() && ptr->documentBuffer().isEmpty()) {
                 ptr->loadFile(filePath);
+                ptr->setMode(MainWindow::Mode::Preview);
+                ptr->setSidebarCollapsed(true);
                 ptr->raise();
                 ptr->activateWindow();
                 return ptr.data();

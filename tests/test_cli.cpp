@@ -20,6 +20,7 @@
 #include "test_status_bar.h"
 #include "test_find_bar.h"
 #include "test_clipboard.h"
+#include "test_editor_view.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -46,6 +47,7 @@ int main(int argc, char* argv[]) {
     testStatusBarAndTelemetryEngine(app);
     testInPageFindBarOverlay(app);
     testClipboardProvider(app);
+    testEditorViewAndThemeAcuity(app);
 
     return 0;
 }

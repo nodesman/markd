@@ -61,6 +61,8 @@ inline void testMarkdApplication(MarkdApplication& app) {
             assert(app.windows().size() == initialCount);
             assert(reusedWin->currentFilePath() == temp1.fileName());
             assert(reusedWin->documentBuffer().contains("# Reused Window Content"));
+            assert(reusedWin->currentMode() == MainWindow::Mode::Preview);
+            assert(reusedWin->isSidebarCollapsed());
         });
 
         it("spawns distinct window instance when active window contains dirty or loaded content", [&]() {
@@ -78,6 +80,8 @@ inline void testMarkdApplication(MarkdApplication& app) {
             assert(app.windows().size() == initialCount + 1);
             assert(win2->currentFilePath() == temp2.fileName());
             assert(win2->documentBuffer().contains("# Fresh Window Content"));
+            assert(win2->currentMode() == MainWindow::Mode::Preview);
+            assert(win2->isSidebarCollapsed());
         });
 
         it("handles macOS file open events by opening document in window", [&]() {
@@ -95,6 +99,46 @@ inline void testMarkdApplication(MarkdApplication& app) {
             MainWindow* eventWin = app.windows().last();
             assert(eventWin->currentFilePath() == temp3.fileName());
             assert(eventWin->documentBuffer().contains("# Event Dispatched Content"));
+            assert(eventWin->currentMode() == MainWindow::Mode::Preview);
+            assert(eventWin->isSidebarCollapsed());
+        });
+
+        it("defaults to preview mode and collapses sidebar when application creates window with document file argument", [&]() {
+            QTemporaryFile doc(QDir::tempPath() + "/markd_init_preview_XXXXXX.md");
+            assert(doc.open());
+            doc.write("# CLI Document\n\nPreview body text.");
+            doc.close();
+
+            MainWindow* win = app.createWindow(doc.fileName());
+            assert(win != nullptr);
+            assert(win->currentMode() == MainWindow::Mode::Preview);
+            assert(win->isSidebarCollapsed());
+        });
+
+        it("retains edit mode and uncollapsed sidebar when application creates empty untitled window", [&]() {
+            MainWindow* blankWin = app.createWindow();
+            assert(blankWin != nullptr);
+            assert(blankWin->currentMode() == MainWindow::Mode::Edit);
+            assert(!blankWin->isSidebarCollapsed());
+        });
+
+        it("honors explicit initial mode and sidebar collapse parameters during construction", [&]() {
+            QTemporaryFile doc(QDir::tempPath() + "/markd_explicit_init_XXXXXX.md");
+            assert(doc.open());
+            doc.write("# Explicit Init");
+            doc.close();
+
+            MainWindow previewWin(doc.fileName(), MainWindow::Mode::Preview, true);
+            assert(previewWin.currentMode() == MainWindow::Mode::Preview);
+            assert(previewWin.isSidebarCollapsed());
+
+            MainWindow editWin(doc.fileName(), MainWindow::Mode::Edit, false);
+            assert(editWin.currentMode() == MainWindow::Mode::Edit);
+            assert(!editWin.isSidebarCollapsed());
+
+            MainWindow defaultWin(doc.fileName());
+            assert(defaultWin.currentMode() == MainWindow::Mode::Edit);
+            assert(!defaultWin.isSidebarCollapsed());
         });
     });
 

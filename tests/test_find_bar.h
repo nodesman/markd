@@ -236,6 +236,7 @@ inline void testInPageFindBarOverlay(QApplication& app) {
             assert(overlay->matchCountText() == "1 of 3");
 
             win.editor()->verticalScrollBar()->setValue(80);
+            app.processEvents();
             const int targetScroll = win.editor()->verticalScrollBar()->value();
             assert(targetScroll > 0);
 

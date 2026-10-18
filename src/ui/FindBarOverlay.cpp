@@ -1,4 +1,5 @@
 #include "ui/FindBarOverlay.h"
+#include "ui/EditorView.h"
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -6,6 +7,7 @@
 #include <QStyle>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QScrollBar>
 #include <algorithm>
 
 FindBarOverlay::FindBarOverlay(QWidget* parent)
@@ -135,6 +137,10 @@ bool FindBarOverlay::stepEditorCursor(QPlainTextEdit* editor, const QString& tex
 QPair<int, int> FindBarOverlay::executeEditorSearch(QPlainTextEdit* editor, const QString& text, bool forward, bool caseSensitive, bool rewindToSelectionStart, bool moveCursor)
 {
     if (!editor || text.isEmpty()) {
+        if (auto* ev = qobject_cast<EditorView*>(editor)) {
+            ev->clearSearchSelections();
+            return {0, 0};
+        }
         if (editor) editor->setExtraSelections({});
         return {0, 0};
     }
@@ -162,7 +168,24 @@ QPair<int, int> FindBarOverlay::executeEditorSearch(QPlainTextEdit* editor, cons
     if (activeOrdinal > 0 && activeOrdinal <= selections.size()) {
         selections[activeOrdinal - 1].format.setBackground(QColor(QStringLiteral("#388bfd66")));
     }
+    const int initialScroll = editor->verticalScrollBar()->value();
+    if (auto* ev = qobject_cast<EditorView*>(editor)) {
+        ev->setSearchSelections(selections);
+        if (!moveCursor) {
+            editor->verticalScrollBar()->setValue(initialScroll);
+            if (editor->verticalScrollBar()->value() != initialScroll) {
+                editor->verticalScrollBar()->setValue(initialScroll);
+            }
+        }
+        return {activeOrdinal, total};
+    }
     editor->setExtraSelections(selections);
+    if (!moveCursor) {
+        editor->verticalScrollBar()->setValue(initialScroll);
+        if (editor->verticalScrollBar()->value() != initialScroll) {
+            editor->verticalScrollBar()->setValue(initialScroll);
+        }
+    }
     return {activeOrdinal, total};
 }
 

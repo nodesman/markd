@@ -336,6 +336,101 @@ inline void testTocSidebarEdgeCases(QApplication& app) {
             assert(accentBarPx.blue() > accentBarPx.red());
         });
     });
+
+    describe("Zero-ghost-divider collapse and seamless canvas alignment", [&]() {
+        auto* splitter = win.mainSplitter();
+
+        it("hides splitter handle and disables mouse interaction when sidebar is collapsed", [&]() {
+            win.setSidebarCollapsed(true);
+            app.processEvents();
+
+            auto* h = splitter->handle(1);
+            assert(h != nullptr);
+            assert(h->isVisible() == false);
+            assert(h->isEnabled() == false);
+            assert(win.tocWidget()->isVisible() == false);
+            assert(splitter->sizes().at(0) == 0);
+        });
+
+        it("restores splitter handle visibility and enables mouse interaction when sidebar is expanded", [&]() {
+            win.setSidebarCollapsed(false);
+            app.processEvents();
+
+            auto* h = splitter->handle(1);
+            assert(h != nullptr);
+            assert(h->isVisible() == true);
+            assert(h->isEnabled() == true);
+            assert(win.tocWidget()->isVisible() == true);
+            assert(splitter->sizes().at(0) >= 200);
+        });
+
+        it("docks central viewport flush against window boundary at x-coordinate zero when collapsed", [&]() {
+            win.setSidebarCollapsed(true);
+            app.processEvents();
+
+            QPoint viewportPos = win.viewportStack()->mapTo(&win, QPoint(0, 0));
+            assert(viewportPos.x() == 0);
+            assert(win.viewportStack()->width() == win.width());
+        });
+
+        it("suppresses ghost divider line during interactive drag to zero", [&]() {
+            emit splitter->splitterMoved(280, 1);
+            assert(win.isSidebarCollapsed() == false);
+            assert(splitter->handle(1)->isVisible() == true);
+
+            emit splitter->splitterMoved(0, 1);
+            app.processEvents();
+            assert(win.isSidebarCollapsed() == true);
+            assert(splitter->handle(1)->isVisible() == false);
+            assert(splitter->handle(1)->isEnabled() == false);
+            assert(win.tocWidget()->isVisible() == false);
+            assert(win.sidebarSavedWidth() == 280);
+            assert(splitter->sizes().at(0) == 0);
+
+            // Drag back open restores handle visibility and enabled state
+            emit splitter->splitterMoved(250, 1);
+            app.processEvents();
+            assert(win.isSidebarCollapsed() == false);
+            assert(splitter->handle(1)->isVisible() == true);
+            assert(splitter->handle(1)->isEnabled() == true);
+            assert(win.tocWidget()->isVisible() == true);
+            assert(win.sidebarSavedWidth() == 250);
+        });
+
+        it("preserves splitter serialization roundtrips with suppressed handle", [&]() {
+            win.setSidebarCollapsed(true);
+            app.processEvents();
+
+            QByteArray collapsedState = splitter->saveState();
+            win.setSidebarCollapsed(false);
+            app.processEvents();
+            assert(splitter->handle(1)->isVisible() == true);
+
+            bool ok = win.restoreSplitterState(collapsedState);
+            assert(ok == true);
+            assert(win.isSidebarCollapsed() == true);
+            assert(splitter->handle(1)->isVisible() == false);
+            assert(splitter->handle(1)->isEnabled() == false);
+            assert(win.tocWidget()->isVisible() == false);
+            assert(splitter->sizes().at(0) == 0);
+        });
+
+        it("maintains zero-coordinate canvas alignment on cold boot with document", [&]() {
+            MainWindow docWin(QStringLiteral("cold_boot_test.md"), MainWindow::Mode::Preview, true);
+            docWin.resize(1000, 650);
+            docWin.show();
+            app.processEvents();
+
+            assert(docWin.isSidebarCollapsed() == true);
+            assert(docWin.mainSplitter()->handle(1)->isVisible() == false);
+            assert(docWin.mainSplitter()->handle(1)->isEnabled() == false);
+            assert(docWin.tocWidget()->isVisible() == false);
+
+            QPoint viewportPos = docWin.viewportStack()->mapTo(&docWin, QPoint(0, 0));
+            assert(viewportPos.x() == 0);
+            assert(docWin.viewportStack()->width() == docWin.width());
+        });
+    });
 }
 
 inline void testTocSidebar(QApplication& app) {

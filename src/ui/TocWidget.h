@@ -7,6 +7,8 @@
 #include <vector>
 #include "parser/TocItem.h"
 
+class TocHeaderWidget;
+
 class TocWidget : public QWidget {
     Q_OBJECT
 
@@ -28,6 +30,12 @@ public:
 
     QListView* view() const { return m_view; }
     QLabel* placeholderLabel() const { return m_placeholderLabel; }
+    TocHeaderWidget* headerWidget() const { return m_headerWidget; }
+    bool isSectionCollapsed() const { return m_isSectionCollapsed; }
+
+public slots:
+    void toggleSection();
+    void setSectionCollapsed(bool collapsed);
 
 signals:
     void headingActivated(const QString& id);
@@ -37,7 +45,9 @@ private slots:
 
 private:
     void setupUI(bool drawAccentBar);
+    void populateModel(const std::vector<TocItem>& items);
 
+    TocHeaderWidget* m_headerWidget = nullptr;
     QListView* m_view = nullptr;
     QStandardItemModel* m_model = nullptr;
     QLabel* m_placeholderLabel = nullptr;
@@ -45,4 +55,5 @@ private:
     std::vector<TocItem> m_headings;
     QString m_activeHeadingId;
     bool m_isProgrammaticUpdate = false;
+    bool m_isSectionCollapsed = false;
 };

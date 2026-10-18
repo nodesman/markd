@@ -44,6 +44,11 @@ set(COMMON_SOURCES
     src/parser/TocParser.cpp
     src/bridge/WebBridge.h
     src/bridge/WebBridge.cpp
+    src/ui/EditorView.h
+    src/ui/EditorView.cpp
+    src/ui/TocHeaderWidget.h
+    src/ui/TocHeaderWidget.cpp
+    src/ui/TocItemDelegate.h
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/PreviewView.h

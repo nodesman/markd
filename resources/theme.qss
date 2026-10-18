@@ -191,22 +191,42 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     color: #f0f6fc;
 }
 
-/* Table of Contents (TOC) Sidebar (Task 9) */
+/* Table of Contents (TOC) Sidebar (Task 9 & Task 5c) */
 #tocSidebar {
     background-color: #0d1117;
-    border-right: 1px solid #1e242c;
+    border-right: none;
+}
+
+#tocHeaderWidget {
+    background-color: transparent;
+}
+
+#tocHeaderTitleLabel {
+    color: #c9d1d9;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#tocHeaderIconLabel,
+#tocHeaderCaretLabel {
+    color: #8b949e;
 }
 
 #tocView,
 QListView#tocView,
 QTreeView#tocView {
-    background-color: transparent;
+    background-color: #0d1117;
     border: none;
     outline: none;
     color: #8b949e;
-    selection-background-color: #161b22;
+    selection-background-color: #21262d;
     selection-color: #f0f6fc;
-    padding-top: 12px;
+    padding-top: 4px;
+}
+
+LineNumberArea,
+#lineNumberArea {
+    background-color: #0d1117;
 }
 
 #tocPlaceholderLabel {

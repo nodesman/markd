@@ -16,18 +16,25 @@
 #include <QPointer>
 #include <algorithm>
 
-MainWindow::MainWindow(const QString& filePath, QWidget* parent)
+MainWindow::MainWindow(const QString& filePath, Mode initialMode, bool startCollapsed, QWidget* parent)
     : QMainWindow(parent)
 {
     setupUI();
 
     if (!filePath.isEmpty()) {
         loadFile(filePath);
-    } else {
-        updateWindowTitle();
-        if (m_session) {
-            m_session->flushOutline();
-        }
+    }
+
+    if (initialMode == ModeSwitcher::DocumentMode::Preview) {
+        setMode(ModeSwitcher::DocumentMode::Preview);
+    }
+    if (startCollapsed) {
+        setSidebarCollapsed(true);
+    }
+
+    updateWindowTitle();
+    if (m_session) {
+        m_session->flushOutline();
     }
 }
 
@@ -111,10 +118,11 @@ void MainWindow::setupUI()
     m_viewportStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_viewportStack->setMinimumWidth(320); // Central reading pane minimum width constraint
 
-    m_editor = new QPlainTextEdit(this);
+    m_editor = new EditorView(this);
     m_editor->setObjectName("central_editor");
     m_editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_editor->setMinimumSize(0, 0);
+    m_editor->setFocus();
     m_viewportStack->addWidget(m_editor); // Index 0: Edit
 
     m_previewView = new PreviewView(this);
@@ -339,27 +347,40 @@ void MainWindow::setupUI()
 
 void MainWindow::onSplitterMoved(int pos, int index)
 {
-    if (index == 1) { // Splitter handle between pane 0 (sidebar) and pane 1 (viewport)
-        int total = m_mainSplitter->sizes().value(0, 0) + m_mainSplitter->sizes().value(1, 0);
-        if (total <= 0) total = width();
+    if (index != 1) return;
 
-        if (pos > 0) {
-            m_savedWidth = std::max(pos, 200);
-            if (m_collapsed) {
-                m_collapsed = false;
-                m_tocWidget->setMinimumWidth(200);
-                m_mainSplitter->setSizes({pos, std::max(320, total - pos)});
-                emit sidebarToggled(false);
-            }
-        } else if (pos == 0) {
-            // Interactive Drag-to-Zero Guard: mark collapsed without wiping m_savedWidth
-            if (!m_collapsed) {
-                m_collapsed = true;
-                m_tocWidget->setMinimumWidth(0);
-                m_mainSplitter->setSizes({0, total});
-                emit sidebarToggled(true);
-            }
+    int total = m_mainSplitter->sizes().value(0, 0) + m_mainSplitter->sizes().value(1, 0);
+    if (total <= 0) total = width();
+
+    if (pos > 0 && m_collapsed) {
+        m_savedWidth = std::max(pos, 200);
+        m_collapsed = false;
+        m_tocWidget->setVisible(true);
+        m_tocWidget->setMinimumWidth(200);
+        if (auto* h = m_mainSplitter->handle(1)) {
+            h->setVisible(true);
+            h->setEnabled(true);
         }
+        m_mainSplitter->setSizes({pos, std::max(320, total - pos)});
+        emit sidebarToggled(false);
+        return;
+    }
+
+    if (pos > 0) {
+        m_savedWidth = std::max(pos, 200);
+        return;
+    }
+
+    if (!m_collapsed) {
+        m_collapsed = true;
+        m_tocWidget->setVisible(false);
+        m_tocWidget->setMinimumWidth(0);
+        if (auto* h = m_mainSplitter->handle(1)) {
+            h->setVisible(false);
+            h->setEnabled(false);
+        }
+        m_mainSplitter->setSizes({0, total});
+        emit sidebarToggled(true);
     }
 }
 
@@ -376,17 +397,28 @@ void MainWindow::setSidebarCollapsed(bool collapsed)
             m_savedWidth = std::max(currentSizes.at(0), 200);
         }
         m_collapsed = true;
+        m_tocWidget->setVisible(false);
         m_tocWidget->setMinimumWidth(0);
+        if (auto* h = m_mainSplitter->handle(1)) {
+            h->setVisible(false);
+            h->setEnabled(false);
+        }
         m_mainSplitter->setSizes({0, totalWidth});
         emit sidebarToggled(true);
-    } else {
-        m_collapsed = false;
-        m_tocWidget->setMinimumWidth(200);
-        int targetWidth = std::max(m_savedWidth, 200);
-        int rest = std::max(320, totalWidth - targetWidth);
-        m_mainSplitter->setSizes({targetWidth, rest});
-        emit sidebarToggled(false);
+        return;
     }
+
+    m_collapsed = false;
+    m_tocWidget->setVisible(true);
+    m_tocWidget->setMinimumWidth(200);
+    if (auto* h = m_mainSplitter->handle(1)) {
+        h->setVisible(true);
+        h->setEnabled(true);
+    }
+    int targetWidth = std::max(m_savedWidth, 200);
+    int rest = std::max(320, totalWidth - targetWidth);
+    m_mainSplitter->setSizes({targetWidth, rest});
+    emit sidebarToggled(false);
 }
 
 void MainWindow::toggleSidebar()
@@ -397,18 +429,26 @@ void MainWindow::toggleSidebar()
 bool MainWindow::restoreSplitterState(const QByteArray& state)
 {
     bool ok = m_mainSplitter->restoreState(state);
-    if (ok) {
-        int currentWidth = m_mainSplitter->sizes().value(0, 0);
-        m_collapsed = (currentWidth == 0);
-        if (m_collapsed) {
-            m_tocWidget->setMinimumWidth(0);
-        } else {
-            m_tocWidget->setMinimumWidth(200);
-            m_savedWidth = std::max(currentWidth, 200);
-        }
-        emit sidebarToggled(m_collapsed);
+    if (!ok) return false;
+
+    int currentWidth = m_mainSplitter->sizes().value(0, 0);
+    m_collapsed = (currentWidth == 0);
+    m_tocWidget->setVisible(!m_collapsed);
+    if (auto* h = m_mainSplitter->handle(1)) {
+        h->setVisible(!m_collapsed);
+        h->setEnabled(!m_collapsed);
     }
-    return ok;
+
+    if (m_collapsed) {
+        m_tocWidget->setMinimumWidth(0);
+        emit sidebarToggled(true);
+        return true;
+    }
+
+    m_tocWidget->setMinimumWidth(200);
+    m_savedWidth = std::max(currentWidth, 200);
+    emit sidebarToggled(false);
+    return true;
 }
 
 bool MainWindow::restoreSplitterState(bool collapsed, int targetWidth)
@@ -420,16 +460,27 @@ bool MainWindow::restoreSplitterState(bool collapsed, int targetWidth)
 
     if (collapsed) {
         m_collapsed = true;
+        m_tocWidget->setVisible(false);
         m_tocWidget->setMinimumWidth(0);
+        if (auto* h = m_mainSplitter->handle(1)) {
+            h->setVisible(false);
+            h->setEnabled(false);
+        }
         m_mainSplitter->setSizes({0, totalWidth});
         emit sidebarToggled(true);
-    } else {
-        m_collapsed = false;
-        m_tocWidget->setMinimumWidth(200);
-        int rest = std::max(320, totalWidth - m_savedWidth);
-        m_mainSplitter->setSizes({m_savedWidth, rest});
-        emit sidebarToggled(false);
+        return true;
     }
+
+    m_collapsed = false;
+    m_tocWidget->setVisible(true);
+    m_tocWidget->setMinimumWidth(200);
+    if (auto* h = m_mainSplitter->handle(1)) {
+        h->setVisible(true);
+        h->setEnabled(true);
+    }
+    int rest = std::max(320, totalWidth - m_savedWidth);
+    m_mainSplitter->setSizes({m_savedWidth, rest});
+    emit sidebarToggled(false);
     return true;
 }
 
@@ -591,9 +642,14 @@ void MainWindow::onOpenShowcase()
 
 void MainWindow::setMode(Mode mode)
 {
-    if (m_modeSwitcher) {
-        m_modeSwitcher->setMode(mode);
+    if (!m_modeSwitcher) {
+        return;
     }
+    if (m_modeSwitcher->currentMode() == mode) {
+        onModeChanged(mode);
+        return;
+    }
+    m_modeSwitcher->setMode(mode);
 }
 
 void MainWindow::setupClipboardBridge()
@@ -639,7 +695,7 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
         QTextCursor cur = m_editor->textCursor();
         cur.clearSelection();
         m_editor->setTextCursor(cur);
-        m_editor->setExtraSelections({});
+        m_editor->clearSearchSelections();
     }
 
     const QString activeQuery = m_lastFindText;
@@ -845,7 +901,7 @@ void MainWindow::clearFind()
         QTextCursor cur = m_editor->textCursor();
         cur.clearSelection();
         m_editor->setTextCursor(cur);
-        m_editor->setExtraSelections({});
+        m_editor->clearSearchSelections();
     }
     if (m_findBarOverlay) {
         m_findBarOverlay->updateMatchCount(0, 0);
@@ -964,7 +1020,6 @@ void MainWindow::copyPreviewHtmlToClipboard(const std::function<void(bool)>& cal
 
     m_previewView->toHtml([self, currentGen, fallbackMarkdown, callback](const QString& rawHtml) {
         if (!self) {
-            if (callback) callback(false);
             return;
         }
         self->m_isCopyingHtml = false;
@@ -1079,6 +1134,9 @@ void MainWindow::reloadEditorBuffer(const QString& md)
         m_editor->setTextCursor(cursor);
     }
     m_editor->verticalScrollBar()->setValue(scrollPosition);
+    if (m_editor->verticalScrollBar()->value() != scrollPosition) {
+        m_editor->verticalScrollBar()->setValue(scrollPosition);
+    }
 }
 
 void MainWindow::onDiskReloaded()
@@ -1093,8 +1151,13 @@ void MainWindow::onDiskReloaded()
     if (!m_findBarOverlay || !m_findBarOverlay->isVisible() || m_lastFindText.isEmpty() || !m_editor) {
         return;
     }
+    const int scrollPosition = m_editor->verticalScrollBar()->value();
     const QPair<int, int> counts = FindBarOverlay::executeEditorSearch(
         m_editor, m_lastFindText, true, m_lastFindCaseSensitive, false, false);
     m_findBarOverlay->updateMatchCount(counts.first, counts.second);
+    m_editor->verticalScrollBar()->setValue(scrollPosition);
+    if (m_editor->verticalScrollBar()->value() != scrollPosition) {
+        m_editor->verticalScrollBar()->setValue(scrollPosition);
+    }
     emit findResult(counts.first, counts.second);
 }

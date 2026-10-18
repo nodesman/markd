@@ -125,6 +125,7 @@ inline void testMainWindowSessionObserver(MarkdApplication& app) {
             assert(scrollWindow.loadFile(temp.fileName()));
             app.processEvents();
             scrollWindow.editor()->verticalScrollBar()->setValue(100);
+            app.processEvents();
             const int targetScroll = scrollWindow.editor()->verticalScrollBar()->value();
             assert(targetScroll > 0);
 

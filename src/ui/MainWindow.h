@@ -2,7 +2,7 @@
 
 #include <QMainWindow>
 #include <QString>
-#include <QPlainTextEdit>
+#include "ui/EditorView.h"
 #include <QStackedWidget>
 #include <QSplitter>
 #include <QTimer>
@@ -23,7 +23,12 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(const QString& filePath = QString(), QWidget* parent = nullptr);
+    using Mode = ModeSwitcher::DocumentMode;
+
+    explicit MainWindow(const QString& filePath = QString(), 
+                        Mode initialMode = Mode::Edit, 
+                        bool startCollapsed = false, 
+                        QWidget* parent = nullptr);
     ~MainWindow() override {
         ++m_clipboardOpGeneration;
         m_isCopyingHtml = false;
@@ -33,7 +38,7 @@ public:
     bool loadFile(const QString& filePath);
     QString currentFilePath() const;
     QString documentBuffer() const;
-    QPlainTextEdit* editor() const { return m_editor; }
+    EditorView* editor() const { return m_editor; }
     PreviewView* previewView() const { return m_previewView; }
     HeaderBar* headerBar() const { return m_headerBar; }
     ModeSwitcher* modeSwitcher() const { return m_modeSwitcher; }
@@ -44,8 +49,8 @@ public:
     StatusBarTelemetry* statusBar() const { return m_statusBar; }
     FindBarOverlay* findBarOverlay() const { return m_findBarOverlay; }
 
-    using Mode = ModeSwitcher::DocumentMode;
     void setMode(Mode mode);
+    Mode currentMode() const { return m_currentMode; }
 
     bool isSidebarCollapsed() const { return m_collapsed; }
     int sidebarSavedWidth() const { return m_savedWidth; }
@@ -127,7 +132,7 @@ private:
     QSplitter* m_mainSplitter = nullptr;
     TocWidget* m_tocWidget = nullptr;
     QStackedWidget* m_viewportStack = nullptr;
-    QPlainTextEdit* m_editor = nullptr;
+    EditorView* m_editor = nullptr;
     PreviewView* m_previewView = nullptr;
     StatusBarTelemetry* m_statusBar = nullptr;
     FindBarOverlay* m_findBarOverlay = nullptr;
