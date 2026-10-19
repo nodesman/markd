@@ -49,6 +49,8 @@ QString CommandLineOptions::helpText(const QString& programName) {
     ).arg(programName);
 }
 
+#include "core/Version.h"
+
 QString CommandLineOptions::versionText() {
-    return QString("Markd version 1.0.0 (Qt 6 C++20)\n");
+    return QString("Markd version %1 (Qt 6 C++20)\n").arg(MARKD_VERSION_STR);
 }

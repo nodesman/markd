@@ -1,4 +1,8 @@
 #include "ui/MainWindow.h"
+#include "ui/AboutDialog.h"
+#include "ui/UpdateDialog.h"
+#include "core/UpdateChecker.h"
+#include "core/Version.h"
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
@@ -36,6 +40,12 @@ MainWindow::MainWindow(const QString& filePath, Mode initialMode, bool startColl
     if (m_session) {
         m_session->flushOutline();
     }
+}
+
+MainWindow::~MainWindow()
+{
+    ++m_clipboardOpGeneration;
+    m_isCopyingHtml = false;
 }
 
 void MainWindow::setupUI()
@@ -329,6 +339,9 @@ void MainWindow::setupUI()
     if (m_actions.aboutAction) {
         connect(m_actions.aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
     }
+    if (m_actions.checkUpdatesAction) {
+        connect(m_actions.checkUpdatesAction, &QAction::triggered, this, &MainWindow::onCheckUpdates);
+    }
     if (m_actions.openShowcaseAction) {
         connect(m_actions.openShowcaseAction, &QAction::triggered, this, &MainWindow::onOpenShowcase);
     }
@@ -613,15 +626,97 @@ void MainWindow::onActualSize()
     }
 }
 
+void MainWindow::restoreActiveFocus()
+{
+    if (m_currentMode == ModeSwitcher::DocumentMode::Edit && m_editor) {
+        m_editor->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+    if (m_previewView && m_previewView->webView()) {
+        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
+    }
+}
+
 void MainWindow::onAbout()
 {
-    QMessageBox::about(
-        this,
-        tr("About Markd"),
-        tr("<h3>Markd 1.0.0</h3>"
-           "<p>High-performance native Markdown viewer and editor.</p>"
-           "<p>Engineered for command-line developers and power users.</p>")
-    );
+    if (m_aboutDialog) {
+        m_aboutDialog->raise();
+        m_aboutDialog->activateWindow();
+        return;
+    }
+
+    m_aboutDialog = new AboutDialog(this);
+    m_aboutDialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(m_aboutDialog, &QDialog::finished, this, [this](int) {
+        restoreActiveFocus();
+    });
+    connect(m_aboutDialog, &AboutDialog::checkUpdatesRequested, this, [this]() {
+        if (m_aboutDialog) {
+            m_aboutDialog->dismiss();
+        }
+        onCheckUpdates();
+    });
+    m_aboutDialog->open();
+}
+
+void MainWindow::onCheckUpdates()
+{
+    if (m_updateDialog) {
+        m_updateDialog->raise();
+        m_updateDialog->activateWindow();
+        return;
+    }
+
+    if (m_statusBar) {
+        m_statusBar->showNotification(tr("Checking for updates…"), QStringLiteral("info"), 2000);
+    }
+
+    UpdateInfo initialInfo;
+    initialInfo.state = UpdateState::Checking;
+    initialInfo.currentVersion = QString::fromUtf8(MARKD_VERSION_STR);
+
+    m_updateDialog = new UpdateDialog(initialInfo, this);
+    m_updateDialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(m_updateDialog, &QDialog::finished, this, [this](int) {
+        restoreActiveFocus();
+    });
+    connect(m_updateDialog, &UpdateDialog::retryRequested, this, [this]() {
+        if (m_statusBar) {
+            m_statusBar->showNotification(tr("Checking for updates…"), QStringLiteral("info"), 2000);
+        }
+        if (m_updateDialog) {
+            UpdateInfo retryInfo;
+            retryInfo.state = UpdateState::Checking;
+            retryInfo.currentVersion = QString::fromUtf8(MARKD_VERSION_STR);
+            m_updateDialog->setUpdateInfo(retryInfo);
+        }
+        if (m_updateChecker) {
+            m_updateChecker->checkForUpdates();
+        }
+    });
+    m_updateDialog->open();
+
+    if (!m_updateChecker) {
+        m_updateChecker = std::make_unique<UpdateChecker>(this);
+        QPointer<MainWindow> self(this);
+        connect(m_updateChecker.get(), &UpdateChecker::checkFinished, this, [self](const UpdateInfo& info) {
+            if (!self) return;
+            if (self->m_updateDialog) {
+                self->m_updateDialog->setUpdateInfo(info);
+            }
+        });
+        connect(m_updateChecker.get(), &UpdateChecker::checkFailed, this, [self](const QString& err) {
+            if (!self) return;
+            if (self->m_updateDialog) {
+                UpdateInfo failInfo;
+                failInfo.state = UpdateState::CheckFailed;
+                failInfo.errorMessage = err;
+                self->m_updateDialog->setUpdateInfo(failInfo);
+            }
+        });
+    }
+
+    m_updateChecker->checkForUpdates();
 }
 
 void MainWindow::onOpenShowcase()

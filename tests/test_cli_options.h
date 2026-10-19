@@ -5,6 +5,7 @@
 #include <iostream>
 #include "Zinsser.h"
 #include "app/CommandLineOptions.h"
+#include "core/Version.h"
 
 inline void testCommandLineOptions() {
     using Zinsser::describe;
@@ -90,7 +91,7 @@ inline void testCommandLineOptions() {
             assert(help.contains("--version"));
 
             QString version = CommandLineOptions::versionText();
-            assert(version.contains("Markd version 1.0.0"));
+            assert(version.contains(QString("Markd version %1").arg(MARKD_VERSION_STR)));
         });
     });
 }

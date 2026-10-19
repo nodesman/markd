@@ -1,12 +1,13 @@
 #include "app/MarkdApplication.h"
 #include "ui/MainWindow.h"
+#include "core/Version.h"
 #include <QFileInfo>
 
 MarkdApplication::MarkdApplication(int& argc, char** argv)
     : QApplication(argc, argv)
 {
     setApplicationName("Markd");
-    setApplicationVersion("1.0.0");
+    setApplicationVersion(MARKD_VERSION_STR);
     setOrganizationDomain("markd.org");
     setOrganizationName("Markd");
 }

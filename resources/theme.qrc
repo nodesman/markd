@@ -8,4 +8,7 @@
     <qresource prefix="/resources">
         <file>showcase.md</file>
     </qresource>
+    <qresource prefix="/branding">
+        <file alias="markd_glyph_transparent.png">../../resources/branding/markd_glyph_transparent.png</file>
+    </qresource>
 </RCC>

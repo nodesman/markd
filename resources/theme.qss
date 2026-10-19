@@ -406,3 +406,120 @@ QPushButton#findPrevButton:disabled,
 QPushButton#findNextButton:disabled {
     color: #484f58;
 }
+
+/* ==========================================================================
+   Sovereign Dialog Trilogy (AboutDialog & UpdateDialog)
+   ========================================================================== */
+
+QDialog#aboutDialog,
+QDialog#updateDialog {
+    background-color: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+}
+
+QPushButton#dialogCloseButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 12px;
+}
+
+QPushButton#dialogCloseButton:hover {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    color: #f0f6fc;
+}
+
+QLabel#aboutTitleLabel {
+    color: #f0f6fc;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QLabel#aboutVersionLabel {
+    color: #8b949e;
+    font-size: 12px;
+}
+
+QLabel#tamilInscriptionLabel {
+    color: #8b949e;
+    font-size: 12px;
+    font-family: "Noto Sans Tamil", "Tamil Sangam MN", "Tamil MN", "Nirmala UI", "Latha", "Lohit Tamil", sans-serif;
+}
+
+QLabel#aboutFooterLabel {
+    color: #484f58;
+    font-size: 11px;
+}
+
+QPushButton#checkUpdatesButton,
+QPushButton#dialogPrimaryButton {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 5px;
+    color: #f0f6fc;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+}
+
+QPushButton#checkUpdatesButton:hover,
+QPushButton#dialogPrimaryButton:hover {
+    background-color: #21262d;
+    border-color: #484f58;
+}
+
+QPushButton#dialogSecondaryButton {
+    background-color: transparent;
+    border: 1px solid #30363d;
+    border-radius: 5px;
+    color: #8b949e;
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
+QPushButton#dialogSecondaryButton:hover {
+    background-color: #161b22;
+    color: #f0f6fc;
+}
+
+QLabel#updateStatusLabel {
+    color: #f0f6fc;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QLabel#updateSubtitleLabel {
+    color: #8b949e;
+    font-size: 12px;
+}
+
+QWidget#updateCommandBox {
+    background-color: #050505;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+}
+
+QLabel#updatePromptLabel {
+    color: #484f58;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 12px;
+}
+
+QLabel#updateCommandLabel {
+    color: #f0f6fc;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 12px;
+}
+
+QLabel#copiedBadge {
+    background-color: #238636;
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    max-height: 20px;
+}

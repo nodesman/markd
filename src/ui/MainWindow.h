@@ -18,6 +18,12 @@
 #include "ui/FindBarOverlay.h"
 #include "core/HtmlClipboardProvider.h"
 #include <cstdint>
+#include <memory>
+#include <QPointer>
+
+class AboutDialog;
+class UpdateDialog;
+class UpdateChecker;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -29,10 +35,7 @@ public:
                         Mode initialMode = Mode::Edit, 
                         bool startCollapsed = false, 
                         QWidget* parent = nullptr);
-    ~MainWindow() override {
-        ++m_clipboardOpGeneration;
-        m_isCopyingHtml = false;
-    }
+    ~MainWindow() override;
 
     DocumentSession* session() const { return m_session; }
     bool loadFile(const QString& filePath);
@@ -104,6 +107,7 @@ private slots:
     void onZoomOut();
     void onActualSize();
     void onAbout();
+    void onCheckUpdates();
     void onOpenShowcase();
     void onModeChanged(ModeSwitcher::DocumentMode mode);
     void onSplitterMoved(int pos, int index);
@@ -124,6 +128,7 @@ private:
     QString determineTargetHeading() const;
     qreal determineScrollRatio(const QString& targetHeadingId) const;
     void reloadEditorBuffer(const QString& md);
+    void restoreActiveFocus();
 
     DocumentSession* m_session = nullptr;
     HeaderBar* m_headerBar = nullptr;
@@ -137,6 +142,10 @@ private:
     StatusBarTelemetry* m_statusBar = nullptr;
     FindBarOverlay* m_findBarOverlay = nullptr;
     MenuBuilder::Actions m_actions;
+
+    QPointer<AboutDialog> m_aboutDialog;
+    QPointer<UpdateDialog> m_updateDialog;
+    std::unique_ptr<UpdateChecker> m_updateChecker;
 
     int m_savedWidth = 250;
     bool m_collapsed = false;

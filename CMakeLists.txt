@@ -22,7 +22,7 @@ if(ENABLE_COVERAGE)
     add_link_options(-fprofile-instr-generate)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test Network)
 
 include_directories(src)
 
@@ -31,6 +31,11 @@ set(COMMON_SOURCES
     src/app/MarkdApplication.cpp
     src/app/CommandLineOptions.h
     src/app/CommandLineOptions.cpp
+    src/core/Version.h
+    src/core/ProvenanceDetector.h
+    src/core/ProvenanceDetector.cpp
+    src/core/UpdateChecker.h
+    src/core/UpdateChecker.cpp
     src/core/DocumentSession.h
     src/core/DocumentSession.cpp
     src/core/Converter.h
@@ -63,6 +68,10 @@ set(COMMON_SOURCES
     src/ui/StatusBarTelemetry.cpp
     src/ui/FindBarOverlay.h
     src/ui/FindBarOverlay.cpp
+    src/ui/AboutDialog.h
+    src/ui/AboutDialog.cpp
+    src/ui/UpdateDialog.h
+    src/ui/UpdateDialog.cpp
     src/ui/MenuBuilder.h
     src/ui/MenuBuilder.cpp
     src/ui/Theme.h
@@ -103,6 +112,7 @@ target_link_libraries(markd PRIVATE
     Qt6::Widgets
     Qt6::WebEngineWidgets
     Qt6::WebChannel
+    Qt6::Network
 )
 
 if(APPLE)
@@ -127,6 +137,7 @@ target_link_libraries(test_cli PRIVATE
     Qt6::WebEngineWidgets
     Qt6::WebChannel
     Qt6::Test
+    Qt6::Network
 )
 
 if(APPLE)

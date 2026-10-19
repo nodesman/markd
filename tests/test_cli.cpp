@@ -21,6 +21,7 @@
 #include "test_find_bar.h"
 #include "test_clipboard.h"
 #include "test_editor_view.h"
+#include "test_dialogs.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -48,6 +49,7 @@ int main(int argc, char* argv[]) {
     testInPageFindBarOverlay(app);
     testClipboardProvider(app);
     testEditorViewAndThemeAcuity(app);
+    testSovereignDialogTrilogy(app);
 
     return 0;
 }
