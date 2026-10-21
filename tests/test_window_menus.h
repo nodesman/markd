@@ -10,9 +10,13 @@
 #include <QAction>
 #include <QList>
 #include <QDialog>
+#include <QSignalSpy>
 #include <QTimer>
 #include <QWindowStateChangeEvent>
 #include "Zinsser.h"
+#include "core/FileAssociationManager.h"
+#include "ui/AboutDialog.h"
+#include "ui/FindBarOverlay.h"
 #include "ui/MainWindow.h"
 #include "ui/MenuBuilder.h"
 #include "ui/HeaderBar.h"
@@ -113,12 +117,45 @@ inline void testWindowAndMenuIntegrity() {
 
             assert(actions.aboutAction != nullptr);
             assert(actions.checkUpdatesAction != nullptr);
+            assert(actions.makeDefaultAction != nullptr);
+            assert(actions.makeDefaultAction->menuRole() == QAction::ApplicationSpecificRole);
             assert(actions.openShowcaseAction != nullptr);
 
             // Verify Menus
             QList<QAction*> menus = menuBar.actions();
             // File, Edit, View, Help (4 menus)
             assert(menus.size() >= 4);
+        });
+
+        it("formats cross-platform markdown file association manifests and triggers status telemetry", [&]() {
+            assert(FileAssociationManager::supportedExtensions().contains(".md"));
+            assert(FileAssociationManager::supportedExtensions().contains(".markdown"));
+            assert(FileAssociationManager::supportedMimeTypes().contains("text/markdown"));
+            assert(FileAssociationManager::supportedUtis().contains("net.daringfireball.markdown"));
+
+            QString desktopEntry = FileAssociationManager::formatDesktopEntry("/usr/local/bin/markd", "markd");
+            assert(desktopEntry.contains("[Desktop Entry]"));
+            assert(desktopEntry.contains("Exec=\"/usr/local/bin/markd\" %F"));
+            assert(desktopEntry.contains("MimeType=text/markdown;text/x-markdown;"));
+
+            QStringList winCmds = FileAssociationManager::formatWindowsRegistryCommands("C:/Program Files/Markd/markd.exe");
+            assert(!winCmds.isEmpty());
+            assert(winCmds.first().contains("HKCU\\Software\\Classes\\Markd.Document"));
+
+            QString capturedPath;
+            FileAssociationManager customMgr([&](const QString& path) {
+                capturedPath = path;
+                return true;
+            });
+            assert(!customMgr.registerAsDefault(""));
+            assert(customMgr.registerAsDefault("/opt/markd/bin/markd"));
+            assert(capturedPath == "/opt/markd/bin/markd");
+
+            MainWindow win;
+            QAction* makeDefaultAct = win.findChild<QAction*>("action_make_default_md");
+            assert(makeDefaultAct != nullptr);
+            makeDefaultAct->trigger();
+            assert(win.statusBar()->notificationLabel()->text().contains("Markdown handler"));
         });
 
         it("binds standard platform accelerators across menu items", [&]() {
@@ -233,14 +270,15 @@ inline void testWindowAndMenuIntegrity() {
 
         it("dismisses informational about dialog without blocking execution", [&]() {
             MainWindow win;
-            QTimer::singleShot(20, []() {
-                for (QWidget* w : QApplication::topLevelWidgets()) {
-                    if (qobject_cast<QDialog*>(w) || w->isModal()) {
-                        w->close();
-                    }
-                }
-            });
             QMetaObject::invokeMethod(&win, "onAbout");
+            QCoreApplication::processEvents();
+            AboutDialog* dialog = win.findChild<AboutDialog*>();
+            assert(dialog != nullptr);
+            QSignalSpy finishedSpy(dialog, &QDialog::finished);
+            dialog->reject();
+            QCoreApplication::processEvents();
+            assert(finishedSpy.count() == 1);
+            assert(finishedSpy.takeFirst().at(0).toInt() == QDialog::Rejected);
         });
 
         it("loads canonical showcase document upon demo showcase action trigger", [&]() {
@@ -282,6 +320,113 @@ inline void testWindowAndMenuIntegrity() {
             MainWindow untitledWin;
             dismiss();
             QMetaObject::invokeMethod(&untitledWin, "onSave");
+        });
+
+        it("toggles full screen window state via menu action and Alt+Enter accelerator without mutating editor text", [&]() {
+            MainWindow win;
+            win.show();
+            QCoreApplication::processEvents();
+
+            QAction* fsAct = win.findChild<QAction*>("action_toggle_fullscreen");
+            assert(fsAct != nullptr);
+            assert(fsAct->isCheckable() == true);
+
+            const auto shortcuts = fsAct->shortcuts();
+            assert(shortcuts.contains(QKeySequence(Qt::ALT | Qt::Key_Return)));
+            assert(shortcuts.contains(QKeySequence(Qt::ALT | Qt::Key_Enter)));
+            assert(shortcuts.contains(QKeySequence(QKeySequence::FullScreen)));
+
+            assert((win.windowState() & Qt::WindowFullScreen) == 0);
+            fsAct->trigger();
+            QCoreApplication::processEvents();
+            assert((win.windowState() & Qt::WindowFullScreen) == Qt::WindowFullScreen);
+            assert(fsAct->isChecked() == true);
+
+            fsAct->trigger();
+            QCoreApplication::processEvents();
+            assert((win.windowState() & Qt::WindowFullScreen) == 0);
+            assert(fsAct->isChecked() == false);
+
+            win.setMode(MainWindow::Mode::Edit);
+            win.editor()->setPlainText("Initial line");
+            win.editor()->setFocus();
+            QCoreApplication::processEvents();
+
+            QKeyEvent altEnterPress(QEvent::KeyPress, Qt::Key_Return, Qt::AltModifier, QStringLiteral("\r"));
+            QApplication::sendEvent(win.editor(), &altEnterPress);
+            QCoreApplication::processEvents();
+
+            assert(win.editor()->toPlainText() == QStringLiteral("Initial line"));
+            assert((win.windowState() & Qt::WindowFullScreen) == Qt::WindowFullScreen);
+            assert(fsAct->isChecked() == true);
+
+            QKeyEvent altEnterExit(QEvent::ShortcutOverride, Qt::Key_Enter, Qt::AltModifier);
+            QApplication::sendEvent(win.editor(), &altEnterExit);
+            QCoreApplication::processEvents();
+            assert((win.windowState() & Qt::WindowFullScreen) == 0);
+            assert(fsAct->isChecked() == false);
+        });
+
+        it("dismisses find bar on escape before exiting full screen mode and zeroes safe area margins", [&]() {
+            MainWindow win;
+            win.resize(1024, 768);
+            win.show();
+            QCoreApplication::processEvents();
+
+            QAction* fsAct = win.findChild<QAction*>("action_toggle_fullscreen");
+            assert(fsAct != nullptr);
+            fsAct->trigger();
+            QCoreApplication::processEvents();
+            assert((win.windowState() & Qt::WindowFullScreen) == Qt::WindowFullScreen);
+            assert(win.headerBar()->leadingSlot()->contentsMargins().left() == 0);
+
+            QMetaObject::invokeMethod(&win, "onFind");
+            QCoreApplication::processEvents();
+            assert(win.findBarOverlay()->isVisible() == true);
+
+            QKeyEvent escFind(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QApplication::sendEvent(&win, &escFind);
+            QCoreApplication::processEvents();
+            assert(win.findBarOverlay()->isHidden() == true);
+            assert((win.windowState() & Qt::WindowFullScreen) == Qt::WindowFullScreen);
+
+            fsAct->trigger();
+            QCoreApplication::processEvents();
+            assert((win.windowState() & Qt::WindowFullScreen) == 0);
+#if defined(Q_OS_MACOS)
+            assert(win.headerBar()->leadingSlot()->contentsMargins().left() == 76);
+#endif
+        });
+
+        it("isolates double clicks on header export and find buttons from window maximization and centers mode switcher", [&]() {
+            MainWindow win;
+            win.resize(1024, 768);
+            win.show();
+            win.headerBar()->layout()->activate();
+            QCoreApplication::processEvents();
+
+            auto* exportBtn = win.findChild<HeaderActionButton*>("headerExportButton");
+            auto* findBtn = win.findChild<HeaderActionButton*>("headerFindButton");
+            assert(exportBtn != nullptr);
+            assert(findBtn != nullptr);
+            assert(exportBtn->glyph() == HeaderActionButton::Glyph::Export);
+            assert(findBtn->glyph() == HeaderActionButton::Glyph::Find);
+
+            QWidget* trailing = win.headerBar()->trailingSlot();
+            const int rightMargin = trailing->contentsMargins().right();
+            assert(trailing->width() >= rightMargin + exportBtn->width() + findBtn->width());
+
+            QWidget* centerSlot = win.headerBar()->centerSlot();
+            const int centerMid = centerSlot->x() + (centerSlot->width() / 2);
+            const int winMid = win.headerBar()->width() / 2;
+            assert(std::abs(centerMid - winMid) <= 1);
+
+            QMouseEvent dblClick(QEvent::MouseButtonDblClick, QPointF(16, 14), QPointF(16, 14),
+                                 Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(findBtn, &dblClick);
+            QApplication::sendEvent(exportBtn, &dblClick);
+            assert(dblClick.isAccepted() == true);
+            assert(win.isMaximized() == false);
         });
     });
 }

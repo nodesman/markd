@@ -2,28 +2,27 @@
 #include <QPainter>
 #include <QTextBlock>
 #include <QScrollBar>
+#include <QNativeGestureEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
+#include <QAction>
 #include <algorithm>
+#include <cmath>
 
-LineNumberArea::LineNumberArea(EditorView* editor)
-    : QWidget(editor)
-    , m_editor(editor)
-{
+LineNumberArea::LineNumberArea(EditorView* editor) : QWidget(editor), m_editor(editor) {
     setObjectName(QStringLiteral("lineNumberArea"));
 }
 
-QSize LineNumberArea::sizeHint() const
-{
+QSize LineNumberArea::sizeHint() const {
     return QSize(m_editor->lineNumberAreaWidth(), 0);
 }
 
-void LineNumberArea::paintEvent(QPaintEvent* event)
-{
+void LineNumberArea::paintEvent(QPaintEvent* event) {
     m_editor->lineNumberAreaPaintEvent(event);
 }
 
 EditorView::EditorView(QWidget* parent)
-    : QPlainTextEdit(parent)
-    , m_lineNumberArea(new LineNumberArea(this))
+    : QPlainTextEdit(parent), m_lineNumberArea(new LineNumberArea(this))
 {
     configureTypography();
     connect(this, &EditorView::blockCountChanged, this, &EditorView::updateLineNumberAreaWidth);
@@ -33,14 +32,12 @@ EditorView::EditorView(QWidget* parent)
     highlightCurrentLine();
 }
 
-void EditorView::configureTypography()
-{
+void EditorView::configureTypography() {
     QFont monoFont(QStringLiteral("SF Mono"));
     monoFont.setStyleHint(QFont::Monospace);
     monoFont.setFixedPitch(true);
     monoFont.setPointSize(13);
     setFont(monoFont);
-
     document()->setDocumentMargin(16);
 
     QPalette p = palette();
@@ -49,74 +46,109 @@ void EditorView::configureTypography()
     setPalette(p);
 }
 
-int EditorView::lineNumberAreaWidth() const
-{
+int EditorView::lineNumberAreaWidth() const {
     int digits = 1;
     int max = std::max(1, blockCount());
-    while (max >= 10) {
-        max /= 10;
-        ++digits;
-    }
+    while (max >= 10) { max /= 10; ++digits; }
     return digits * fontMetrics().horizontalAdvance('9') + 24;
 }
 
-void EditorView::updateLineNumberAreaWidth()
-{
+void EditorView::updateLineNumberAreaWidth() {
     const int newWidth = lineNumberAreaWidth();
-    if (viewportMargins().left() != newWidth) {
-        setViewportMargins(newWidth, 0, 0, 0);
-    }
+    if (viewportMargins().left() != newWidth) setViewportMargins(newWidth, 0, 0, 0);
     const QRect cr = contentsRect();
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), newWidth, cr.height()));
 }
 
-void EditorView::updateLineNumberArea(const QRect& rect, int dy)
-{
+void EditorView::updateLineNumberArea(const QRect& rect, int dy) {
     if (dy != 0) {
         m_lineNumberArea->scroll(0, dy);
         return;
     }
     m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
-    if (rect.contains(viewport()->rect())) {
-        updateLineNumberAreaWidth();
-    }
+    if (rect.contains(viewport()->rect())) updateLineNumberAreaWidth();
 }
 
-void EditorView::resizeEvent(QResizeEvent* event)
-{
+bool EditorView::handleKeyOrShortcutOverride(QEvent* event) {
+    static bool handledInShortcutOverride = false;
+    auto* keyEvent = static_cast<QKeyEvent*>(event);
+    const bool isEnter = (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter);
+    const bool isAltOnly = ((keyEvent->modifiers() & ~Qt::KeypadModifier) == Qt::AltModifier);
+    if (!isEnter || !isAltOnly) {
+        handledInShortcutOverride = false;
+        return false;
+    }
+    event->accept();
+    if (event->type() == QEvent::KeyPress && handledInShortcutOverride) {
+        handledInShortcutOverride = false;
+        return true;
+    }
+    handledInShortcutOverride = (event->type() == QEvent::ShortcutOverride);
+    QWidget* win = window();
+    QAction* act = win ? win->findChild<QAction*>(QStringLiteral("action_toggle_fullscreen")) : nullptr;
+    if (act) act->trigger();
+    return true;
+}
+
+bool EditorView::event(QEvent* event) {
+    if (event->type() == QEvent::NativeGesture) {
+        auto* gesture = static_cast<QNativeGestureEvent*>(event);
+        if (gesture->gestureType() == Qt::ZoomNativeGesture) {
+            event->accept();
+            if (std::abs(gesture->value()) >= 1e-6) emit zoomDeltaRequested(gesture->value());
+            return true;
+        }
+    }
+    if (event->type() == QEvent::Wheel) {
+        auto* wheel = static_cast<QWheelEvent*>(event);
+        if (wheel->modifiers() & Qt::ControlModifier) {
+            wheelEvent(wheel);
+            return true;
+        }
+    }
+    if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
+        if (handleKeyOrShortcutOverride(event)) return true;
+    }
+    return QPlainTextEdit::event(event);
+}
+
+void EditorView::wheelEvent(QWheelEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier) {
+        event->accept();
+        const int dy = event->angleDelta().y();
+        if (dy != 0) emit zoomDeltaRequested(dy > 0 ? 0.10 : -0.10);
+        return;
+    }
+    QPlainTextEdit::wheelEvent(event);
+}
+
+void EditorView::resizeEvent(QResizeEvent* event) {
     QPlainTextEdit::resizeEvent(event);
     const QRect cr = contentsRect();
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
 }
 
-void EditorView::changeEvent(QEvent* event)
-{
+void EditorView::changeEvent(QEvent* event) {
     QPlainTextEdit::changeEvent(event);
-    if (event->type() == QEvent::FontChange) {
-        updateLineNumberAreaWidth();
-    }
+    if (event->type() == QEvent::FontChange) updateLineNumberAreaWidth();
 }
 
-void EditorView::setLineHighlightEnabled(bool enabled)
-{
+void EditorView::setLineHighlightEnabled(bool enabled) {
     m_lineHighlightEnabled = enabled;
     highlightCurrentLine();
 }
 
-void EditorView::setSearchSelections(const QList<QTextEdit::ExtraSelection>& selections)
-{
+void EditorView::setSearchSelections(const QList<QTextEdit::ExtraSelection>& selections) {
     m_searchSelections = selections;
     highlightCurrentLine();
 }
 
-void EditorView::clearSearchSelections()
-{
+void EditorView::clearSearchSelections() {
     m_searchSelections.clear();
     highlightCurrentLine();
 }
 
-void EditorView::highlightCurrentLine()
-{
+void EditorView::highlightCurrentLine() {
     QList<QTextEdit::ExtraSelection> combined = m_searchSelections;
     if (!isReadOnly() && m_lineHighlightEnabled) {
         QTextEdit::ExtraSelection s;
@@ -130,8 +162,7 @@ void EditorView::highlightCurrentLine()
     m_lineNumberArea->update();
 }
 
-void EditorView::lineNumberAreaPaintEvent(QPaintEvent* event)
-{
+void EditorView::lineNumberAreaPaintEvent(QPaintEvent* event) {
     QPainter painter(m_lineNumberArea);
     painter.fillRect(event->rect(), QColor(QStringLiteral("#0d1117")));
     painter.setPen(QColor(QStringLiteral("#1e242c")));
@@ -154,16 +185,7 @@ void EditorView::lineNumberAreaPaintEvent(QPaintEvent* event)
     }
 }
 
-void EditorView::paintBlockNumber(
-    QPainter* painter,
-    const QTextBlock& block,
-    int blockNumber,
-    int activeBlockNumber,
-    int top,
-    int bottom,
-    int textRight,
-    const QRect& clipRect)
-{
+void EditorView::paintBlockNumber(QPainter* painter, const QTextBlock& block, int blockNumber, int activeBlockNumber, int top, int bottom, int textRight, const QRect& clipRect) {
     if (!block.isVisible() || bottom < clipRect.top()) return;
     const bool isActive = (blockNumber == activeBlockNumber);
     painter->setPen(QColor(isActive ? QStringLiteral("#f0f6fc") : QStringLiteral("#484f58")));

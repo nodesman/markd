@@ -302,6 +302,8 @@ li > p {
     align-items: center;
     justify-content: center;
     z-index: 1;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .table-wrapper:hover .table-expand-btn {
@@ -385,6 +387,7 @@ img {
     background: var(--code-bg);
     border-bottom: 1px solid var(--border);
     user-select: none;
+    -webkit-user-select: none;
 }
 
 .expandable-toolbar button {
@@ -460,6 +463,8 @@ img {
     flex-direction: column;
     opacity: 0;
     transition: opacity 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .fullview-overlay.visible {
@@ -475,6 +480,8 @@ img {
     background: var(--code-bg);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .fullview-toolbar button {
@@ -564,9 +571,25 @@ del {
 
 /* ---- Print styles ---- */
 @media print {
-    body {
-        background: white;
-        color: black;
+    :root {
+        --bg: #ffffff;
+        --text: #1f2328;
+        --text-secondary: #57606a;
+        --code-bg: #f6f8fa;
+        --border: #d0d7de;
+        --link: #0969da;
+        --heading: #1f2328;
+        --blockquote-border: #d0d7de;
+        --blockquote-bg: #f6f8fa;
+        --table-stripe: #f6f8fa;
+        --table-header-bg: #f0f3f6;
+        --hr: #d0d7de;
+    }
+
+    html, body {
+        background-color: #ffffff !important;
+        color: #1f2328 !important;
+        background: #ffffff !important;
         padding: 0;
         max-width: none;
     }
@@ -590,8 +613,8 @@ del {
         word-wrap: break-word;
     }
 
-    a { color: black; text-decoration: underline; }
-    a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #666; }
+    a { color: #0969da; text-decoration: underline; }
+    a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #57606a; }
 
     #content p > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
     #content p > a > img[src*=".svg" i]:not([src*="badge"]):not([src*="shields.io"]):not([src*="travis-ci"]):not([src*="codecov"]):not([class*="badge"]),
@@ -607,7 +630,11 @@ del {
     }
 
     .mermaid-viewport {
+        background-color: #0d1117 !important;
+        border: 1px solid #30363d !important;
         overflow: visible !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 
     .mermaid-viewport,
@@ -618,3 +645,4 @@ del {
         page-break-inside: avoid;
     }
 }
+

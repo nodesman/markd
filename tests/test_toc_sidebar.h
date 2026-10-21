@@ -430,6 +430,68 @@ inline void testTocSidebarEdgeCases(QApplication& app) {
             assert(viewportPos.x() == 0);
             assert(docWin.viewportStack()->width() == docWin.width());
         });
+
+        it("pins Table of Contents header to top edge when outline section is collapsed", [&]() {
+            win.setSidebarCollapsed(false);
+            win.session()->setMarkdown("# Section Alpha\n\n## Section Beta");
+            win.session()->flushOutline();
+            app.processEvents();
+
+            auto* toc = win.tocWidget();
+            auto* header = toc->findChild<QWidget*>("tocHeaderWidget");
+            auto* spacer = toc->findChild<QWidget*>("tocCollapsedSpacer");
+            assert(header != nullptr);
+            assert(spacer != nullptr);
+
+            toc->setSectionCollapsed(false);
+            toc->layout()->activate();
+            app.processEvents();
+            assert(header->geometry().top() == 0);
+            assert(spacer->isVisible() == false);
+
+            toc->setSectionCollapsed(true);
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->isSectionCollapsed() == true);
+            assert(header->geometry().top() == 0);
+            assert(header->height() == 28);
+            assert(spacer->isVisible() == true);
+            assert(spacer->geometry().height() >= toc->height() - header->height() - 2);
+
+            win.session()->setMarkdown("# Reloaded Section");
+            win.session()->flushOutline();
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->isSectionCollapsed() == true);
+            assert(header->geometry().top() == 0);
+            assert(spacer->isVisible() == true);
+
+            toc->setSectionCollapsed(false);
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->isSectionCollapsed() == false);
+            assert(header->geometry().top() == 0);
+            assert(spacer->isVisible() == false);
+
+            win.session()->setMarkdown("Plain paragraph without headings.");
+            win.session()->flushOutline();
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->placeholderLabel()->isVisible() == true);
+
+            toc->setSectionCollapsed(true);
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->placeholderLabel()->isHidden() == true);
+            assert(toc->view()->isHidden() == true);
+            assert(spacer->isVisible() == true);
+            assert(header->geometry().top() == 0);
+
+            toc->setSectionCollapsed(false);
+            toc->layout()->activate();
+            app.processEvents();
+            assert(toc->placeholderLabel()->isVisible() == true);
+        });
     });
 }
 

@@ -32,10 +32,14 @@ set(COMMON_SOURCES
     src/app/CommandLineOptions.h
     src/app/CommandLineOptions.cpp
     src/core/Version.h
+    src/core/FileAssociationManager.h
+    src/core/FileAssociationManager.cpp
     src/core/ProvenanceDetector.h
     src/core/ProvenanceDetector.cpp
     src/core/UpdateChecker.h
     src/core/UpdateChecker.cpp
+    src/core/SilentAutoUpdater.h
+    src/core/SilentAutoUpdater.cpp
     src/core/DocumentSession.h
     src/core/DocumentSession.cpp
     src/core/Converter.h
@@ -94,7 +98,7 @@ endforeach()
 if(APPLE)
     list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_mac.mm)
 elseif(WIN32)
-    list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_win.cpp)
+    list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_win.cpp resources/markd.rc)
 else()
     list(APPEND COMMON_SOURCES src/ui/platform/PlatformFrame_generic.cpp)
 endif()

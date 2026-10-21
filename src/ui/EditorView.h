@@ -52,7 +52,12 @@ public slots:
     void highlightCurrentLine();
     void updateLineNumberAreaWidth();
 
+signals:
+    void zoomDeltaRequested(qreal delta);
+
 protected:
+    bool event(QEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void changeEvent(QEvent* event) override;
 
@@ -61,6 +66,7 @@ private slots:
 
 private:
     void configureTypography();
+    bool handleKeyOrShortcutOverride(QEvent* event);
     void paintBlockNumber(QPainter* painter, const QTextBlock& block, int blockNumber, int activeBlockNumber, int top, int bottom, int textRight, const QRect& clipRect);
 
     LineNumberArea* m_lineNumberArea = nullptr;

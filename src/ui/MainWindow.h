@@ -88,6 +88,8 @@ signals:
 
 public slots:
     void updateToc();
+    void onFind();
+    void onToggleFullScreen();
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -101,13 +103,13 @@ private slots:
     void onPrintPdf();
     void onExportHtml();
     void onCopyHtml();
-    void onFind();
     void onToggleWordWrap();
     void onZoomIn();
     void onZoomOut();
     void onActualSize();
     void onAbout();
     void onCheckUpdates();
+    void onMakeDefaultForMarkdown();
     void onOpenShowcase();
     void onModeChanged(ModeSwitcher::DocumentMode mode);
     void onSplitterMoved(int pos, int index);

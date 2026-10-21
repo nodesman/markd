@@ -17,6 +17,7 @@
 #include "ui/AboutDialog.h"
 #include "ui/UpdateDialog.h"
 #include "core/ProvenanceDetector.h"
+#include "core/SilentAutoUpdater.h"
 #include "core/UpdateChecker.h"
 #include "core/Version.h"
 
@@ -148,7 +149,11 @@ inline void testSovereignDialogTrilogy(QApplication& app) {
         it("classifies macOS application bundle and standalone binary targets", [&]() {
             const auto appBundle = ProvenanceDetector::detect("/Applications/Markd.app/Contents/MacOS/markd");
             assert(appBundle.provenance == InstallationProvenance::StandaloneBinary);
-            assert(appBundle.downloadUrl == "https://aramudan.dev/markd");
+            assert(appBundle.downloadUrl == "https://markd.aramudan.dev");
+
+            const auto aptPkg = ProvenanceDetector::detect("/usr/bin/markd");
+            assert(aptPkg.provenance == InstallationProvenance::AptPackage);
+            assert(aptPkg.upgradeCommand == "sudo apt update && sudo apt install --only-upgrade markd");
 
             const auto customBuild = ProvenanceDetector::detect("/tmp/build/bin/markd");
             assert(customBuild.provenance == InstallationProvenance::StandaloneBinary);
@@ -240,7 +245,7 @@ inline void testSovereignDialogTrilogy(QApplication& app) {
             info.currentVersion = "v0.1.0";
             info.latestVersion = "v0.2.0";
             info.provenance = InstallationProvenance::StandaloneBinary;
-            info.downloadUrl = "https://aramudan.dev/markd";
+            info.downloadUrl = "https://markd.aramudan.dev";
 
             UpdateDialog dialog(info);
             dialog.open();
@@ -487,6 +492,214 @@ inline void testSovereignDialogTrilogy(QApplication& app) {
 
             updateDlg->reject();
             app.processEvents();
+        });
+
+        it("ignores frameless dialog mouse movement when drag originates on child buttons", [&]() {
+            AboutDialog aboutDlg;
+            aboutDlg.move(200, 200);
+            aboutDlg.show();
+            app.processEvents();
+            const QPoint initialAboutPos = aboutDlg.pos();
+
+            QMouseEvent uninitiatedMove(QEvent::MouseMove, QPointF(10, 10), QPointF(500, 500),
+                                        Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&aboutDlg, &uninitiatedMove);
+            assert(aboutDlg.pos() == initialAboutPos);
+
+            QMouseEvent bgPress(QEvent::MouseButtonPress, QPointF(20, 20), QPointF(220, 220),
+                                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&aboutDlg, &bgPress);
+            QMouseEvent bgRelease(QEvent::MouseButtonRelease, QPointF(20, 20), QPointF(220, 220),
+                                  Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(&aboutDlg, &bgRelease);
+
+            QMouseEvent afterReleaseMove(QEvent::MouseMove, QPointF(30, 30), QPointF(600, 600),
+                                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&aboutDlg, &afterReleaseMove);
+            assert(aboutDlg.pos() == initialAboutPos);
+            aboutDlg.reject();
+
+            UpdateDialog updateDlg;
+            updateDlg.move(240, 240);
+            updateDlg.show();
+            app.processEvents();
+            const QPoint initialUpdatePos = updateDlg.pos();
+            QApplication::sendEvent(&updateDlg, &uninitiatedMove);
+            assert(updateDlg.pos() == initialUpdatePos);
+            updateDlg.reject();
+        });
+
+        it("renders apt package upgrade command in update dialog and displays canonical markd.aramudan.dev footer", [&]() {
+            AboutDialog aboutDlg;
+            assert(aboutDlg.footerText().contains(QStringLiteral("markd.aramudan.dev")));
+
+            UpdateInfo aptInfo;
+            aptInfo.state = UpdateState::UpdateAvailable;
+            aptInfo.currentVersion = QStringLiteral("0.1.0");
+            aptInfo.latestVersion = QStringLiteral("0.2.0");
+            aptInfo.provenance = InstallationProvenance::AptPackage;
+            aptInfo.upgradeCommand = QStringLiteral("sudo apt update && sudo apt install --only-upgrade markd");
+
+            UpdateDialog dlg(aptInfo);
+            dlg.open();
+            app.processEvents();
+            assert(dlg.commandText() == QStringLiteral("sudo apt update && sudo apt install --only-upgrade markd"));
+            assert(dlg.actionButtonText() == QStringLiteral("Copy Command"));
+            dlg.triggerPrimaryAction();
+            assert(QApplication::clipboard()->text() == QStringLiteral("sudo apt update && sudo apt install --only-upgrade markd"));
+            dlg.reject();
+        });
+
+        it("honors MARKD_UPDATE_ENDPOINT environment variable override in update checker", [&]() {
+            qunsetenv("MARKD_UPDATE_ENDPOINT");
+            assert(UpdateChecker::resolvedEndpointUrl().toString() == QStringLiteral("https://markd.aramudan.dev/api/v1/updates/check"));
+
+            qputenv("MARKD_UPDATE_ENDPOINT", "http://127.0.0.1:8094/api/v1/updates/check");
+            assert(UpdateChecker::resolvedEndpointUrl().toString() == QStringLiteral("http://127.0.0.1:8094/api/v1/updates/check"));
+            qunsetenv("MARKD_UPDATE_ENDPOINT");
+        });
+
+        it("restores active viewport focus after dismissing about and update dialogs", [&]() {
+            MainWindow win;
+            win.show();
+            win.activateWindow();
+            win.setMode(MainWindow::Mode::Edit);
+            win.editor()->setFocus();
+            app.processEvents();
+
+            QAction* aboutAction = win.findChild<QAction*>("action_about");
+            aboutAction->trigger();
+            app.processEvents();
+            AboutDialog* aboutDlg = win.findChild<AboutDialog*>();
+            assert(aboutDlg != nullptr);
+            aboutDlg->reject();
+            app.processEvents();
+            assert(win.currentMode() == MainWindow::Mode::Edit);
+
+            win.setMode(MainWindow::Mode::Preview);
+            app.processEvents();
+            QAction* checkAction = win.findChild<QAction*>("action_check_updates");
+            checkAction->trigger();
+            app.processEvents();
+            UpdateDialog* updateDlg = win.findChild<UpdateDialog*>();
+            assert(updateDlg != nullptr);
+            updateDlg->reject();
+            app.processEvents();
+            assert(win.currentMode() == MainWindow::Mode::Preview);
+        });
+
+        it("stages verified binary payload and atomically replaces standalone executable across v1 to v22 hop", [&]() {
+            assert(UpdateChecker::isNewerVersion(QStringLiteral("1.0.0"), QStringLiteral("22.0.0")) == true);
+            assert(UpdateChecker::isNewerVersion(QStringLiteral("0.1.0"), QStringLiteral("22.0.0")) == true);
+
+            QTemporaryDir tempDir;
+            assert(tempDir.isValid());
+            const QString binPath = tempDir.filePath(QStringLiteral("markd"));
+
+            QFile v1File(binPath);
+            assert(v1File.open(QIODevice::WriteOnly));
+            v1File.write("markd-v1-binary");
+            v1File.close();
+
+            const QByteArray v22Payload("markd-v22-verified-binary-payload");
+            const QString v22Sha = SilentAutoUpdater::computeSha256Hex(v22Payload);
+
+            assert(SilentAutoUpdater::determineUpdateMode(binPath, InstallationProvenance::StandaloneBinary)
+                   == SilentUpdateMode::DirectBinarySwap);
+
+            const SilentUpdateResult res = SilentAutoUpdater::stageAndApplyBinaryUpdate(
+                binPath, v22Payload, v22Sha, QStringLiteral("22.0.0"));
+            assert(res.applied == true);
+            assert(res.appliedVersion == QStringLiteral("22.0.0"));
+            assert(res.statusText.contains(QStringLiteral("22.0.0")));
+
+            QFile updatedFile(binPath);
+            assert(updatedFile.open(QIODevice::ReadOnly));
+            assert(updatedFile.readAll() == v22Payload);
+            assert((updatedFile.permissions() & QFileDevice::ExeOwner) != 0);
+        });
+
+        it("rejects tampered binary payload on sha256 mismatch and preserves existing executable", [&]() {
+            QTemporaryDir tempDir;
+            assert(tempDir.isValid());
+            const QString binPath = tempDir.filePath(QStringLiteral("markd"));
+
+            const QByteArray originalBytes("markd-v1-intact");
+            QFile v1File(binPath);
+            assert(v1File.open(QIODevice::WriteOnly));
+            v1File.write(originalBytes);
+            v1File.close();
+
+            const SilentUpdateResult badRes = SilentAutoUpdater::stageAndApplyBinaryUpdate(
+                binPath,
+                QByteArray("tampered-payload"),
+                QStringLiteral("0000000000000000000000000000000000000000000000000000000000000000"),
+                QStringLiteral("22.0.0"));
+            assert(badRes.applied == false);
+            assert(!QFile::exists(binPath + QStringLiteral(".new")));
+
+            QFile checkFile(binPath);
+            assert(checkFile.open(QIODevice::ReadOnly));
+            assert(checkFile.readAll() == originalBytes);
+        });
+
+        it("resolves linux appimage outer path and executes background package upgrades for homebrew and npm", [&]() {
+            const ProvenanceResult appImgProv = ProvenanceDetector::detect(
+                QStringLiteral("/tmp/.mount_Markd12345/usr/bin/markd"),
+                QStringLiteral("/home/dev/Applications/Markd-x86_64.AppImage"));
+            assert(appImgProv.provenance == InstallationProvenance::LinuxAppImage);
+            assert(appImgProv.targetBinaryPath == QStringLiteral("/home/dev/Applications/Markd-x86_64.AppImage"));
+
+            QString invokedProg;
+            QStringList invokedArgs;
+            const SilentUpdateResult brewRes = SilentAutoUpdater::executePackageUpgrade(
+                InstallationProvenance::Homebrew,
+                QStringLiteral("0.2.0"),
+                [&](const QString& prog, const QStringList& args) {
+                    invokedProg = prog;
+                    invokedArgs = args;
+                    return true;
+                });
+            assert(brewRes.applied == true);
+            assert(invokedProg == QStringLiteral("brew"));
+            assert(invokedArgs == QStringList({QStringLiteral("upgrade"), QStringLiteral("markd")}));
+
+            const SilentUpdateResult npmRes = SilentAutoUpdater::executePackageUpgrade(
+                InstallationProvenance::NpmGlobal,
+                QStringLiteral("0.2.0"),
+                [&](const QString& prog, const QStringList& args) {
+                    invokedProg = prog;
+                    invokedArgs = args;
+                    return true;
+                });
+            assert(npmRes.applied == true);
+            assert(invokedProg == QStringLiteral("npm"));
+            assert(invokedArgs.contains(QStringLiteral("markd@latest")));
+
+            assert(SilentAutoUpdater::determineUpdateMode(
+                QStringLiteral("/usr/bin/markd"), InstallationProvenance::AptPackage)
+                == SilentUpdateMode::ManualCommandRequired);
+        });
+
+        it("sweeps stale old backup binary on startup and updates inline about dialog status", [&]() {
+            QTemporaryDir tempDir;
+            assert(tempDir.isValid());
+            const QString binPath = tempDir.filePath(QStringLiteral("markd.exe"));
+            const QString oldPath = binPath + QStringLiteral(".old");
+
+            QFile oldFile(oldPath);
+            assert(oldFile.open(QIODevice::WriteOnly));
+            oldFile.write("stale-old-binary");
+            oldFile.close();
+            assert(QFile::exists(oldPath));
+
+            assert(SilentAutoUpdater::sweepStaleBackup(binPath) == true);
+            assert(!QFile::exists(oldPath));
+
+            AboutDialog aboutDlg;
+            assert(aboutDlg.silentUpdateStatusText() == QStringLiteral("✓ Up to date"));
+            aboutDlg.setSilentUpdateStatus(QStringLiteral("✓ Updated to v22.0.0 (active on next launch)"));
+            assert(aboutDlg.silentUpdateStatusText() == QStringLiteral("✓ Updated to v22.0.0 (active on next launch)"));
         });
     });
 }

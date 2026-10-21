@@ -20,6 +20,8 @@ struct UpdateInfo {
     QString latestVersion;
     QString upgradeCommand;
     QString downloadUrl;
+    QString artifactUrl;
+    QString artifactSha256;
     QString errorMessage;
     InstallationProvenance provenance{InstallationProvenance::StandaloneBinary};
 };
@@ -43,6 +45,8 @@ public:
 
     static bool isNewerVersion(const QString& current, const QString& latest);
     static QList<int> parseVersion(const QString& ver);
+    static QUrl resolvedEndpointUrl();
+    static QString currentPlatformArtifactKey();
 
 signals:
     void checkFinished(const UpdateInfo& info);

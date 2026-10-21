@@ -45,6 +45,7 @@ protected:
     }
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
 private:
     void setupUi();
@@ -63,4 +64,5 @@ private:
     QPushButton* m_closeBtn{nullptr};
     QTimer* m_badgeTimer{nullptr};
     QPoint m_dragPosition;
+    bool m_dragging{false};
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QAccessible>
 #include <QSignalSpy>
 #include <QTest>
 #include <QDir>
@@ -26,6 +27,15 @@ inline void testNativeChromiumModernization(MarkdApplication& app) {
             assert(previewView.session() != nullptr);
             assert(previewView.channel() != nullptr);
             assert(previewView.webView() != nullptr);
+        });
+
+        it("traverses accessibility parent hierarchy on preview web view without dereferencing dangling renderer pointers", [&]() {
+            QAccessibleInterface* iface = QAccessible::queryAccessibleInterface(previewView.webView());
+            assert(iface != nullptr);
+            assert(iface->isValid());
+            for (int depth = 0; depth < 8 && iface != nullptr; ++depth) {
+                iface = iface->parent();
+            }
         });
 
         it("dispatches hardware-accelerated find text operations and clears search highlights", [&]() {

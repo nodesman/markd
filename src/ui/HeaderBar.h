@@ -21,6 +21,26 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* event) override;
 };
 
+class HeaderActionButton : public QPushButton {
+    Q_OBJECT
+
+public:
+    enum class Glyph { Export, Find };
+
+    explicit HeaderActionButton(Glyph glyph, QWidget* parent = nullptr);
+    ~HeaderActionButton() override = default;
+
+    QSize sizeHint() const override { return QSize(32, 28); }
+    Glyph glyph() const { return m_glyph; }
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+
+private:
+    Glyph m_glyph;
+};
+
 class HeaderBar : public QWidget {
     Q_OBJECT
 

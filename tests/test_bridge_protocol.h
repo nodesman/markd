@@ -1,6 +1,7 @@
 #include <QTextBlock>
 #pragma once
 
+#include <QAccessible>
 #include <QSignalSpy>
 #include <QJsonObject>
 #include <QClipboard>
@@ -461,6 +462,62 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             assert(win.statusBar()->notificationLabel() != nullptr);
             assert(win.statusBar()->notificationLabel()->isVisible());
             assert(win.statusBar()->notificationLabel()->text() == "Copied to clipboard");
+        });
+
+        it("preserves registered session object in web channel across deferred deletion ticks", [&]() {
+            PreviewView view;
+            DocumentSession externalSession;
+            externalSession.setMarkdown(QStringLiteral("# Preloaded Session Document"));
+
+            view.setSession(&externalSession);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            app.processEvents();
+
+            const QHash<QString, QObject*> registered = view.channel()->registeredObjects();
+            assert(registered.value(QStringLiteral("session")) == &externalSession);
+            assert(registered.value(QStringLiteral("markdBridge")) == view.bridge());
+            assert(view.pendingMarkdown() == QStringLiteral("# Preloaded Session Document"));
+        });
+
+        it("forces document render on bridge re-initialization and falls back to session buffer", [&]() {
+            PreviewView view;
+            DocumentSession externalSession;
+            view.setSession(&externalSession);
+
+            // 1. First handshake with current markdown populated forces re-render on subsequent handshake
+            view.setMarkdown(QStringLiteral("# First Pass"));
+            emit view.bridge()->bridgeInitialized();
+            assert(view.currentMarkdown() == QStringLiteral("# First Pass"));
+
+            QSignalSpy reinitSpy(view.bridge(), &WebBridge::renderDocument);
+            emit view.bridge()->bridgeInitialized();
+            assert(reinitSpy.count() == 1);
+            assert(reinitSpy.last().at(0).toString() == QStringLiteral("# First Pass"));
+            assert(reinitSpy.last().at(1).toJsonObject().value(QStringLiteral("force")).toBool() == true);
+
+            // 2. Handshake after loadTemplate resets buffers pulls directly from session markdown
+            view.loadTemplate();
+            assert(view.currentMarkdown().isEmpty());
+            assert(view.pendingMarkdown().isEmpty());
+
+            QSignalSpy fallbackSpy(view.bridge(), &WebBridge::renderDocument);
+            emit view.bridge()->bridgeInitialized();
+            assert(fallbackSpy.count() == 1);
+            assert(fallbackSpy.last().at(0).toString() == QStringLiteral("# First Pass"));
+        });
+
+        it("walks accessible parent hierarchy of webengine view without segmentation fault", [&]() {
+            PreviewView view;
+            view.show();
+            app.processEvents();
+            QAccessibleInterface* iface = QAccessible::queryAccessibleInterface(view.webView());
+            if (iface != nullptr) {
+                QAccessibleInterface* parent = iface->parent();
+                if (parent != nullptr) {
+                    (void)parent->parent();
+                }
+            }
+            assert(view.webView() != nullptr);
         });
     });
 }

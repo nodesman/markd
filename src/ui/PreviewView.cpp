@@ -6,6 +6,10 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QUrl>
+#include <QNativeGestureEvent>
+#include <QWheelEvent>
+#include <QChildEvent>
+#include <cmath>
 
 PreviewView::PreviewView(QWidget* parent)
     : QWidget(parent)
@@ -50,7 +54,13 @@ PreviewView::PreviewView(QWidget* parent)
             return;
         }
         if (!m_currentMarkdown.isEmpty()) {
-            emit m_bridge->renderDocument(m_currentMarkdown, QJsonObject());
+            QJsonObject opts;
+            opts[QStringLiteral("force")] = true;
+            emit m_bridge->renderDocument(m_currentMarkdown, opts);
+            return;
+        }
+        if (m_session && !m_session->markdown().isEmpty()) {
+            setMarkdown(m_session->markdown());
         }
     });
 
@@ -63,7 +73,10 @@ PreviewView::PreviewView(QWidget* parent)
         }
         emit activeHeadingChanged(id);
     });
-    connect(m_bridge, &WebBridge::documentRendered, this, &PreviewView::documentRendered);
+    connect(m_bridge, &WebBridge::documentRendered, this, [this](int headingCount) {
+        m_renderedMarkdown = m_currentMarkdown;
+        emit documentRendered(headingCount);
+    });
 
     connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
     connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
@@ -85,11 +98,60 @@ PreviewView::PreviewView(QWidget* parent)
         if (!ok) {
             m_bridgeReady = false;
         }
+        installWebViewEventFilters();
     });
 
     layout->addWidget(m_webView);
+    installWebViewEventFilters();
 
     loadTemplate();
+}
+
+void PreviewView::installWebViewEventFilters()
+{
+    installEventFilter(this);
+    if (!m_webView) return;
+    m_webView->installEventFilter(this);
+    if (QWidget* proxy = m_webView->focusProxy()) {
+        proxy->installEventFilter(this);
+    }
+    const QList<QObject*> children = m_webView->findChildren<QObject*>();
+    for (QObject* child : children) {
+        child->installEventFilter(this);
+    }
+}
+
+bool PreviewView::eventFilter(QObject* watched, QEvent* event)
+{
+    if (event->type() == QEvent::ChildAdded) {
+        auto* childEvent = static_cast<QChildEvent*>(event);
+        if (childEvent->child()) {
+            childEvent->child()->installEventFilter(this);
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+    if (event->type() == QEvent::NativeGesture) {
+        auto* gesture = static_cast<QNativeGestureEvent*>(event);
+        if (gesture->gestureType() == Qt::ZoomNativeGesture) {
+            event->accept();
+            if (std::abs(gesture->value()) >= 1e-6) {
+                emit zoomDeltaRequested(gesture->value());
+            }
+            return true;
+        }
+    }
+    if (event->type() == QEvent::Wheel) {
+        auto* wheel = static_cast<QWheelEvent*>(event);
+        if (wheel->modifiers() & Qt::ControlModifier) {
+            event->accept();
+            const int dy = wheel->angleDelta().y();
+            if (dy != 0) {
+                emit zoomDeltaRequested(dy > 0 ? 0.10 : -0.10);
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void PreviewView::loadTemplate()
@@ -97,6 +159,7 @@ void PreviewView::loadTemplate()
     m_bridgeReady = false;
     m_pageLoaded = false;
     m_currentMarkdown.clear();
+    m_renderedMarkdown.clear();
     m_currentActiveHeading.clear();
     m_webView->setUrl(QUrl("qrc:/web/template.html"));
 }
@@ -106,8 +169,11 @@ void PreviewView::setSession(DocumentSession* session)
     if (m_session == session) return;
     if (m_session) {
         disconnect(m_session, nullptr, this, nullptr);
+        if (m_channel) {
+            m_channel->deregisterObject(m_session);
+        }
         if (m_session->parent() == this) {
-            m_session->deleteLater();
+            delete m_session;
         }
     }
     m_session = session;
@@ -120,6 +186,9 @@ void PreviewView::setSession(DocumentSession* session)
             emit activeHeadingChanged(id);
         });
         connect(m_session, &DocumentSession::themeChanged, this, &PreviewView::setTheme);
+        if (!m_session->markdown().isEmpty()) {
+            setMarkdown(m_session->markdown());
+        }
     }
 }
 
@@ -145,6 +214,10 @@ void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& option
 
     if (m_session && m_session->markdown() != markdown) {
         m_session->setMarkdown(markdown);
+    }
+
+    if (m_renderedMarkdown != markdown) {
+        m_renderedMarkdown.clear();
     }
 
     if (!m_bridgeReady) {
@@ -182,9 +255,9 @@ void PreviewView::setTheme(const QString& themeName)
 
 void PreviewView::setZoomFactor(qreal factor)
 {
+    m_zoomFactor = std::clamp(factor, 0.25, 3.0);
     if (m_webView) {
-        qreal clamped = std::clamp(factor, 0.25, 3.0);
-        m_webView->setZoomFactor(clamped);
+        m_webView->setZoomFactor(m_zoomFactor);
     }
 }
 

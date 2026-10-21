@@ -7,6 +7,9 @@
 #include <QSignalSpy>
 #include <QTest>
 #include <QMouseEvent>
+#include <QNativeGestureEvent>
+#include <QWheelEvent>
+#include <QPointingDevice>
 #include <QLabel>
 #include <QStatusBar>
 #include <QSplitter>
@@ -363,6 +366,96 @@ inline void testStatusBarAndTelemetryEngine(QApplication& app) {
             assert(tLabel->currentMode() == TelemetryLabel::DisplayMode::CharacterCount);
             tLabel->setDisplayMode(TelemetryLabel::DisplayMode::WordsAndReadingTime);
             assert(tLabel->currentMode() == TelemetryLabel::DisplayMode::WordsAndReadingTime);
+        });
+
+        it("synchronizes trackpad pinch-to-zoom and modifier wheel magnification with status bar telemetry", [&]() {
+            win.session()->resetZoom();
+            app.processEvents();
+            assert(zoomLabel->text() == QStringLiteral("100%"));
+            assert(std::abs(win.previewView()->zoomFactor() - 1.0) < 0.001);
+            const int baselineGutterWidth = win.editor()->lineNumberAreaWidth();
+
+            QNativeGestureEvent zeroPinch(Qt::ZoomNativeGesture,
+                                          QPointingDevice::primaryPointingDevice(),
+                                          QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                          0.0, 0, 0);
+            QApplication::sendEvent(win.previewView()->webView(), &zeroPinch);
+            QApplication::sendEvent(win.editor(), &zeroPinch);
+            QWheelEvent horizontalWheel(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(120, 0),
+                                        Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(win.editor(), &horizontalWheel);
+            QApplication::sendEvent(win.previewView()->webView(), &horizontalWheel);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.0) < 0.001);
+
+            QNativeGestureEvent pinchIn(Qt::ZoomNativeGesture,
+                                        QPointingDevice::primaryPointingDevice(),
+                                        QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                        0.25, 0, 0);
+            QApplication::sendEvent(win.previewView()->webView(), &pinchIn);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.25) < 0.01);
+            assert(zoomLabel->text() == QStringLiteral("125%"));
+
+            QObject* dynamicChild = new QObject(win.previewView()->webView());
+            app.processEvents();
+            QNativeGestureEvent childPinch(Qt::ZoomNativeGesture,
+                                           QPointingDevice::primaryPointingDevice(),
+                                           QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                           0.10, 0, 0);
+            QApplication::sendEvent(dynamicChild, &childPinch);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.35) < 0.01);
+            assert(zoomLabel->text() == QStringLiteral("135%"));
+
+            QWheelEvent wheelOut(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(0, -120),
+                                 Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(win.editor(), &wheelOut);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.25) < 0.01);
+            assert(zoomLabel->text() == QStringLiteral("125%"));
+
+            QWheelEvent previewWheelIn(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(0, 120),
+                                       Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(win.previewView()->webView(), &previewWheelIn);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.35) < 0.01);
+            assert(zoomLabel->text() == QStringLiteral("135%"));
+
+            QNativeGestureEvent pinchEditor(Qt::ZoomNativeGesture,
+                                            QPointingDevice::primaryPointingDevice(),
+                                            QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                            -0.35, 0, 0);
+            QApplication::sendEvent(win.editor(), &pinchEditor);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.0) < 0.01);
+            assert(zoomLabel->text() == QStringLiteral("100%"));
+
+            QNativeGestureEvent clampMax(Qt::ZoomNativeGesture,
+                                         QPointingDevice::primaryPointingDevice(),
+                                         QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                         5.0, 0, 0);
+            QApplication::sendEvent(win.previewView()->webView(), &clampMax);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 3.0) < 0.001);
+            assert(zoomLabel->text() == QStringLiteral("300%"));
+            assert(win.editor()->lineNumberAreaWidth() > baselineGutterWidth);
+
+            QNativeGestureEvent clampMin(Qt::ZoomNativeGesture,
+                                         QPointingDevice::primaryPointingDevice(),
+                                         QPointF(10, 10), QPointF(10, 10), QPointF(10, 10),
+                                         -5.0, 0, 0);
+            QApplication::sendEvent(win.previewView()->webView(), &clampMin);
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 0.25) < 0.001);
+            assert(zoomLabel->text() == QStringLiteral("25%"));
+
+            QAction* actualSizeAct = win.findChild<QAction*>("action_actual_size");
+            assert(actualSizeAct != nullptr);
+            actualSizeAct->trigger();
+            app.processEvents();
+            assert(std::abs(win.session()->zoomFactor() - 1.0) < 0.001);
+            assert(win.editor()->lineNumberAreaWidth() == baselineGutterWidth);
         });
     });
 }

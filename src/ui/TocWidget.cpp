@@ -17,8 +17,8 @@ void TocWidget::setupUI(bool drawAccentBar)
     setAccessibleName(tr("Table of Contents"));
 
     QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 12, 0, 8);
-    layout->setSpacing(4);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     m_headerWidget = new TocHeaderWidget(this, this);
     layout->addWidget(m_headerWidget);
@@ -43,8 +43,14 @@ void TocWidget::setupUI(bool drawAccentBar)
     m_placeholderLabel->setWordWrap(true);
     m_placeholderLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    layout->addWidget(m_view);
-    layout->addWidget(m_placeholderLabel);
+    m_collapsedSpacer = new QWidget(this);
+    m_collapsedSpacer->setObjectName(QStringLiteral("tocCollapsedSpacer"));
+    m_collapsedSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_collapsedSpacer->setVisible(false);
+
+    layout->addWidget(m_view, 1);
+    layout->addWidget(m_placeholderLabel, 1);
+    layout->addWidget(m_collapsedSpacer, 1);
 
     m_placeholderLabel->setVisible(true);
     m_view->setVisible(false);
@@ -68,28 +74,30 @@ void TocWidget::populateModel(const std::vector<TocItem>& items)
     }
 }
 
+void TocWidget::syncContentVisibility()
+{
+    m_collapsedSpacer->setVisible(m_isSectionCollapsed);
+    if (m_isSectionCollapsed) {
+        m_view->setVisible(false);
+        m_placeholderLabel->setVisible(false);
+        return;
+    }
+    const bool empty = m_headings.empty();
+    m_placeholderLabel->setVisible(empty);
+    m_view->setVisible(!empty);
+}
+
 void TocWidget::setHeadings(const std::vector<TocItem>& items)
 {
     m_headings = items;
     m_model->clear();
-
-    if (m_isSectionCollapsed) {
-        m_view->setVisible(false);
-        m_placeholderLabel->setVisible(false);
-        populateModel(items);
-        return;
-    }
-
     if (items.empty()) {
-        m_placeholderLabel->setVisible(true);
-        m_view->setVisible(false);
         m_activeHeadingId.clear();
+        syncContentVisibility();
         return;
     }
-
-    m_placeholderLabel->setVisible(false);
-    m_view->setVisible(true);
     populateModel(items);
+    syncContentVisibility();
 }
 
 void TocWidget::toggleSection()
@@ -103,18 +111,7 @@ void TocWidget::setSectionCollapsed(bool collapsed)
     if (m_headerWidget && m_headerWidget->caretLabel()) {
         m_headerWidget->caretLabel()->setText(m_isSectionCollapsed ? QString::fromUtf8("›") : QString::fromUtf8("⌵"));
     }
-    if (m_isSectionCollapsed) {
-        m_view->setVisible(false);
-        m_placeholderLabel->setVisible(false);
-        return;
-    }
-    if (m_headings.empty()) {
-        m_placeholderLabel->setVisible(true);
-        m_view->setVisible(false);
-        return;
-    }
-    m_view->setVisible(true);
-    m_placeholderLabel->setVisible(false);
+    syncContentVisibility();
 }
 
 void TocWidget::setActiveHeading(const QString& headingId)

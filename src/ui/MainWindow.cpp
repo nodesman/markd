@@ -1,6 +1,8 @@
 #include "ui/MainWindow.h"
 #include "ui/AboutDialog.h"
 #include "ui/UpdateDialog.h"
+#include "core/Converter.h"
+#include "core/FileAssociationManager.h"
 #include "core/UpdateChecker.h"
 #include "core/Version.h"
 #include <QFile>
@@ -10,6 +12,8 @@
 #include <QMessageBox>
 #include <QFont>
 #include <QTextBlock>
+#include <QTextDocument>
+#include <QPdfWriter>
 #include <QClipboard>
 #include <QMimeData>
 #include <QApplication>
@@ -83,22 +87,20 @@ void MainWindow::setupUI()
         trailingLayout->setSpacing(4);
         trailingLayout->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-        auto* exportBtn = new QPushButton(this);
+        auto* exportBtn = new HeaderActionButton(HeaderActionButton::Glyph::Export, this);
         exportBtn->setObjectName("headerExportButton");
         exportBtn->setFixedSize(32, 28);
         exportBtn->setAccessibleName(tr("Export Document to HTML"));
         exportBtn->setToolTip(tr("Export to HTML…"));
-        exportBtn->setText(QString::fromUtf8("↑"));
         exportBtn->setFocusPolicy(Qt::NoFocus);
         connect(exportBtn, &QPushButton::clicked, this, &MainWindow::onExportHtml);
         trailingLayout->addWidget(exportBtn);
 
-        auto* findBtn = new QPushButton(this);
+        auto* findBtn = new HeaderActionButton(HeaderActionButton::Glyph::Find, this);
         findBtn->setObjectName("headerFindButton");
         findBtn->setFixedSize(32, 28);
         findBtn->setAccessibleName(tr("Find in Document"));
         findBtn->setToolTip(tr("Find in Document"));
-        findBtn->setText(QString::fromUtf8("🔍"));
         findBtn->setFocusPolicy(Qt::NoFocus);
         connect(findBtn, &QPushButton::clicked, this, &MainWindow::onFind);
         trailingLayout->addWidget(findBtn);
@@ -166,7 +168,12 @@ void MainWindow::setupUI()
         }
     });
     connect(m_previewView, &PreviewView::findResult, this, &MainWindow::onFindResult);
-    connect(m_previewView, &PreviewView::pdfPrintingFinished, this, &MainWindow::pdfPrintingFinished);
+    connect(m_previewView, &PreviewView::pdfPrintingFinished, this, [this](const QString& filePath, bool success) {
+        if (success && m_statusBar) {
+            m_statusBar->showNotification(tr("Exported to PDF"), QStringLiteral("info"), 2000);
+        }
+        emit pdfPrintingFinished(filePath, success);
+    });
 
     // Initialize Headless DocumentSession Single Source of Truth
     m_session = new DocumentSession(this);
@@ -241,6 +248,15 @@ void MainWindow::setupUI()
         if (m_previewView) {
             m_previewView->setZoomFactor(factor);
         }
+    });
+
+    connect(m_previewView, &PreviewView::zoomDeltaRequested, this, [this](qreal delta) {
+        if (!m_session) return;
+        m_session->setZoomFactor(m_session->zoomFactor() + delta);
+    });
+    connect(m_editor, &EditorView::zoomDeltaRequested, this, [this](qreal delta) {
+        if (!m_session) return;
+        m_session->setZoomFactor(m_session->zoomFactor() + delta);
     });
 
     // Editor buffer mutation notifies DocumentSession
@@ -334,6 +350,9 @@ void MainWindow::setupUI()
     if (m_actions.actualSizeAction) {
         connect(m_actions.actualSizeAction, &QAction::triggered, this, &MainWindow::onActualSize);
     }
+    if (m_actions.toggleFullScreenAction) {
+        connect(m_actions.toggleFullScreenAction, &QAction::triggered, this, &MainWindow::onToggleFullScreen);
+    }
 
     // Help Action
     if (m_actions.aboutAction) {
@@ -341,6 +360,9 @@ void MainWindow::setupUI()
     }
     if (m_actions.checkUpdatesAction) {
         connect(m_actions.checkUpdatesAction, &QAction::triggered, this, &MainWindow::onCheckUpdates);
+    }
+    if (m_actions.makeDefaultAction) {
+        connect(m_actions.makeDefaultAction, &QAction::triggered, this, &MainWindow::onMakeDefaultForMarkdown);
     }
     if (m_actions.openShowcaseAction) {
         connect(m_actions.openShowcaseAction, &QAction::triggered, this, &MainWindow::onOpenShowcase);
@@ -510,19 +532,19 @@ void MainWindow::onHeadingActivated(const QString& id)
         m_session->setSelectedHeading(id);
     }
 
-    if (m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Edit) {
-        int line = it->lineNumber;
-        QTextDocument* doc = m_editor->document();
-        QTextBlock block = doc->findBlockByLineNumber(line - 1);
-        if (block.isValid()) {
-            QTextCursor cursor(block);
-            m_editor->setTextCursor(cursor);
-            m_editor->centerCursor();
-            m_editor->setFocus();
-        }
-    } else {
+    if (m_modeSwitcher->currentMode() != ModeSwitcher::DocumentMode::Edit) {
         m_previewView->scrollToHeading(id);
+        return;
     }
+
+    int line = it->lineNumber;
+    QTextDocument* doc = m_editor->document();
+    QTextBlock block = doc->findBlockByLineNumber(line - 1);
+    if (!block.isValid()) return;
+    QTextCursor cursor(block);
+    m_editor->setTextCursor(cursor);
+    m_editor->centerCursor();
+    m_editor->setFocus();
 }
 
 void MainWindow::updateToc()
@@ -554,10 +576,10 @@ void MainWindow::updateWindowTitle()
     bool dirty = m_session ? m_session->isDirty() : false;
     if (path.isEmpty()) {
         setWindowTitle(dirty ? "Markd*" : "Markd");
-    } else {
-        QFileInfo fi(path);
-        setWindowTitle(QString("%1%2 — Markd").arg(fi.fileName(), dirty ? "*" : ""));
+        return;
     }
+    QFileInfo fi(path);
+    setWindowTitle(QString("%1%2 — Markd").arg(fi.fileName(), dirty ? "*" : ""));
 }
 
 void MainWindow::onOpen()
@@ -577,18 +599,18 @@ void MainWindow::onOpen()
 void MainWindow::onSave()
 {
     if (!m_session) return;
-    if (m_session->filePath().isEmpty()) {
-        QString selectedFile = QFileDialog::getSaveFileName(
-            this,
-            tr("Save Markdown Document"),
-            QString(),
-            tr("Markdown Files (*.md *.markdown);;All Files (*)")
-        );
-        if (selectedFile.isEmpty()) return;
-        m_session->saveAs(selectedFile);
-    } else {
+    if (!m_session->filePath().isEmpty()) {
         m_session->save();
+        return;
     }
+    QString selectedFile = QFileDialog::getSaveFileName(
+        this,
+        tr("Save Markdown Document"),
+        QString(),
+        tr("Markdown Files (*.md *.markdown);;All Files (*)")
+    );
+    if (selectedFile.isEmpty()) return;
+    m_session->saveAs(selectedFile);
 }
 
 void MainWindow::onCloseWindow()
@@ -600,9 +622,9 @@ void MainWindow::onToggleWordWrap()
 {
     if (m_editor->lineWrapMode() == QPlainTextEdit::NoWrap) {
         m_editor->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    } else {
-        m_editor->setLineWrapMode(QPlainTextEdit::NoWrap);
+        return;
     }
+    m_editor->setLineWrapMode(QPlainTextEdit::NoWrap);
 }
 
 void MainWindow::onZoomIn()
@@ -624,6 +646,11 @@ void MainWindow::onActualSize()
     if (m_session) {
         m_session->resetZoom();
     }
+}
+
+void MainWindow::onToggleFullScreen()
+{
+    setWindowState(windowState() ^ Qt::WindowFullScreen);
 }
 
 void MainWindow::restoreActiveFocus()
@@ -717,6 +744,18 @@ void MainWindow::onCheckUpdates()
     }
 
     m_updateChecker->checkForUpdates();
+}
+
+void MainWindow::onMakeDefaultForMarkdown()
+{
+    FileAssociationManager manager;
+    const bool ok = manager.registerAsDefault(QCoreApplication::applicationFilePath());
+    if (!m_statusBar) return;
+    if (ok) {
+        m_statusBar->showNotification(tr("Registered Markd as default Markdown handler"), QStringLiteral("info"), 2500);
+        return;
+    }
+    m_statusBar->showNotification(tr("Unable to register default Markdown handler"), QStringLiteral("warning"), 2500);
 }
 
 void MainWindow::onOpenShowcase()
@@ -891,10 +930,12 @@ qreal MainWindow::determineScrollRatio(const QString& targetHeadingId) const
 void MainWindow::changeEvent(QEvent* event)
 {
     QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::WindowStateChange) {
-        if (m_headerBar) {
-            m_headerBar->updateMargins();
-        }
+    if (event->type() != QEvent::WindowStateChange) return;
+    if (m_headerBar) {
+        m_headerBar->updateMargins();
+    }
+    if (m_actions.toggleFullScreenAction) {
+        m_actions.toggleFullScreenAction->setChecked(isFullScreen());
     }
 }
 
@@ -1042,11 +1083,40 @@ void MainWindow::closeFindBar()
     }
 }
 
+namespace {
+
+bool writeStandaloneHtmlFile(const QString& filePath, const QString& rawDomOrFragment, const QString& title)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return false;
+    }
+    const QString bundled = Converter::bundleStandaloneHtml(rawDomOrFragment, title);
+    file.write(bundled.toUtf8());
+    file.close();
+    return true;
+}
+
+} // namespace
+
 void MainWindow::printToPdf(const QString& filePath)
 {
-    if (m_previewView) {
-        m_previewView->printToPdf(filePath);
+    if (!m_previewView) return;
+    const QString currentMd = m_session ? m_session->markdown() : QString();
+    if (m_previewView->currentMarkdown() != currentMd) {
+        m_previewView->setMarkdown(currentMd);
     }
+    if (m_previewView->isBridgeReady() && !m_previewView->renderedMarkdown().isEmpty() && m_previewView->renderedMarkdown() == currentMd) {
+        m_previewView->printToPdf(filePath);
+        return;
+    }
+    QPdfWriter writer(filePath);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
+    QTextDocument doc;
+    doc.setMarkdown(currentMd.isEmpty() ? QStringLiteral(" ") : currentMd, QTextDocument::MarkdownDialectGitHub);
+    doc.print(&writer);
+    emit m_previewView->pdfPrintingFinished(filePath, QFileInfo::exists(filePath) && QFileInfo(filePath).size() > 0);
 }
 
 void MainWindow::exportHtml(const QString& filePath, const std::function<void(bool)>& callback)
@@ -1055,18 +1125,29 @@ void MainWindow::exportHtml(const QString& filePath, const std::function<void(bo
         if (callback) callback(false);
         return;
     }
-    m_previewView->toHtml([filePath, callback](const QString& html) {
-        QFile file(filePath);
-        bool ok = false;
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&file);
-            out << html;
-            file.close();
-            ok = true;
+    const QString currentMd = m_session ? m_session->markdown() : QString();
+    const QString title = windowTitle();
+    if (m_previewView->currentMarkdown() != currentMd) {
+        m_previewView->setMarkdown(currentMd);
+    }
+    if (!m_previewView->isBridgeReady() || m_previewView->renderedMarkdown().isEmpty() || m_previewView->renderedMarkdown() != currentMd) {
+        const bool ok = writeStandaloneHtmlFile(filePath, Converter::toHtmlFragment(currentMd), title);
+        if (ok && m_statusBar) {
+            m_statusBar->showNotification(tr("Exported to HTML"), QStringLiteral("info"), 2000);
+        }
+        if (callback) callback(ok);
+        return;
+    }
+    QPointer<MainWindow> self(this);
+    m_previewView->toHtml([self, filePath, title, callback](const QString& html) {
+        const bool ok = writeStandaloneHtmlFile(filePath, html, title);
+        if (ok && self && self->m_statusBar) {
+            self->m_statusBar->showNotification(tr("Exported to HTML"), QStringLiteral("info"), 2000);
         }
         if (callback) callback(ok);
     });
 }
+
 
 void MainWindow::copyHtmlToClipboard(const std::function<void(bool)>& callback)
 {

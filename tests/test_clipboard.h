@@ -5,8 +5,13 @@
 #include <QMimeData>
 #include <QAction>
 #include <QTextCursor>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <cassert>
 #include "Zinsser.h"
+#include "core/Converter.h"
 #include "core/HtmlClipboardProvider.h"
 #include "ui/MainWindow.h"
 #include "ui/StatusBarTelemetry.h"
@@ -49,7 +54,7 @@ inline void testClipboardProvider(QApplication& app) {
         });
 
         it("inlines code card styles with dark palette tokens", [&]() {
-            QString input = "<pre><code>test</code></pre>";
+            QString input = "<pre><code>test</code></pre><p><code>inline</code></p>";
             QString styled = HtmlClipboardProvider::inlineStyles(input);
             assert(styled.contains("background: #0d1117"));
             assert(styled.contains("border: 1px solid #1e242c"));
@@ -65,6 +70,57 @@ inline void testClipboardProvider(QApplication& app) {
             assert(styled.contains("background: #161b22"));
             assert(styled.contains("border: 1px solid #30363d"));
             assert(styled.contains("color: #c9d1d9"));
+        });
+
+        it("merges aligned table styles strips katex mathml and inlines syntax tokens in clipboard html", [&]() {
+            const QRegularExpression duplicateStyleRegex("<[^>]+\\bstyle=[\"'][^\"']*[\"'][^>]+\\bstyle=");
+
+            QMimeData* mdMime = HtmlClipboardProvider::createFromMarkdown(
+                "| Centered | Right |\n|:---:|---:|\n| `pill` | val |\n\n```rust\nfn main() {}\n```");
+            assert(mdMime != nullptr);
+            const QString mdHtml = mdMime->html();
+            assert(!duplicateStyleRegex.match(mdHtml).hasMatch());
+            assert(mdHtml.contains("border: 1px solid #30363d"));
+            assert(mdHtml.contains("background: #0d1117"));
+            delete mdMime;
+
+            const QString previewDom =
+                "<article id=\"content\" class=\"markdown-rendered\">"
+                "<table><thead><tr><th style=\"text-align:center\">Centered</th><th style=\"text-align:right\">Right</th></tr></thead>"
+                "<tbody><tr><td style=\"text-align:center\"><code>inline_pill</code></td><td/></tr></tbody></table>"
+                "<div class=\"code-block-card\">"
+                "<div class=\"code-block-header\"><span class=\"code-lang\">rust</span><button class=\"copy-btn\">Copy</button></div>"
+                "<pre class=\"hljs\"><code style=\"white-space: pre-wrap;\"><span class=\"hljs-keyword\">fn</span> <span class=\"hljs-title\">main</span>() {}</code></pre>"
+                "</div>"
+                "<div class=\"expandable-toolbar\"/>"
+                "<button class=\"custom-copy-btn\">KeepButton</button>"
+                "<p><span class=\"katex\"><span class=\"katex-mathml\"><math>E=mc^2</math></span><span class=\"katex-html\">E=mc^2</span></span></p>"
+                "<div class=\"fullview-overlay\"><div class=\"fullview-header\"><div class=\"fullview-toolbar\"><button class=\"close-btn\">✕</button></div></div><div class=\"fullview-body\">Modal</div></div>"
+                "</article>";
+
+            QMimeData* previewMime = HtmlClipboardProvider::createFromPreviewHtml(previewDom, "fallback");
+            assert(previewMime != nullptr);
+            const QString clipHtml = previewMime->html();
+            assert(!duplicateStyleRegex.match(clipHtml).hasMatch());
+            assert(clipHtml.contains("text-align:center"));
+            assert(clipHtml.contains("text-align:right"));
+            assert(clipHtml.contains("background: #161b22"));
+            assert(clipHtml.contains("white-space: pre-wrap;"));
+            assert(clipHtml.contains("KeepButton"));
+            assert(!clipHtml.contains("<td/ "));
+            assert(!clipHtml.contains("katex-mathml"));
+            assert(clipHtml.contains("katex-html"));
+            assert(!clipHtml.contains("fullview-overlay"));
+            assert(!clipHtml.contains("fullview-toolbar"));
+            assert(!clipHtml.contains("close-btn"));
+            assert(!clipHtml.contains("code-block-header"));
+            assert(clipHtml.contains("color: #ff7b72"));
+            assert(clipHtml.contains("color: #d2a8ff"));
+
+            const QRegularExpression preInnerCodePillRegex("<pre\\b[^>]*>\\s*<code\\b[^>]*1px solid #30363d");
+            assert(!preInnerCodePillRegex.match(clipHtml).hasMatch());
+            assert(clipHtml.contains("inline_pill"));
+            delete previewMime;
         });
 
         it("normalizes unicode paragraph separators to linebreaks", [&]() {
@@ -250,3 +306,4 @@ inline void testClipboardProvider(QApplication& app) {
         });
     });
 }
+

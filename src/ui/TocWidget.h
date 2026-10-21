@@ -31,6 +31,7 @@ public:
     QListView* view() const { return m_view; }
     QLabel* placeholderLabel() const { return m_placeholderLabel; }
     TocHeaderWidget* headerWidget() const { return m_headerWidget; }
+    QWidget* collapsedSpacer() const { return m_collapsedSpacer; }
     bool isSectionCollapsed() const { return m_isSectionCollapsed; }
 
 public slots:
@@ -46,11 +47,13 @@ private slots:
 private:
     void setupUI(bool drawAccentBar);
     void populateModel(const std::vector<TocItem>& items);
+    void syncContentVisibility();
 
     TocHeaderWidget* m_headerWidget = nullptr;
     QListView* m_view = nullptr;
     QStandardItemModel* m_model = nullptr;
     QLabel* m_placeholderLabel = nullptr;
+    QWidget* m_collapsedSpacer = nullptr;
 
     std::vector<TocItem> m_headings;
     QString m_activeHeadingId;

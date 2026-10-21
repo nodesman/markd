@@ -1,15 +1,39 @@
 #include "app/MarkdApplication.h"
 #include "ui/MainWindow.h"
 #include "core/Version.h"
+#include "core/ProvenanceDetector.h"
+#include "core/SilentAutoUpdater.h"
 #include <QFileInfo>
+#include <QIcon>
+
+namespace {
+
+int& configureChromiumFlagsBeforeApp(int& argc)
+{
+    MarkdApplication::applyChromiumStabilityFlags();
+    return argc;
+}
+
+} // namespace
+
+void MarkdApplication::applyChromiumStabilityFlags()
+{
+    QByteArray flags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
+    if (flags.contains("--disable-renderer-accessibility")) return;
+    if (!flags.isEmpty()) flags.append(' ');
+    flags.append("--disable-renderer-accessibility");
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
+}
 
 MarkdApplication::MarkdApplication(int& argc, char** argv)
-    : QApplication(argc, argv)
+    : QApplication(configureChromiumFlagsBeforeApp(argc), argv)
 {
     setApplicationName("Markd");
     setApplicationVersion(MARKD_VERSION_STR);
-    setOrganizationDomain("markd.org");
+    setOrganizationDomain("markd.aramudan.dev");
     setOrganizationName("Markd");
+    setWindowIcon(QIcon(QStringLiteral(":/branding/app_icon.png")));
+    SilentAutoUpdater::sweepStaleBackup(ProvenanceDetector::resolveTargetBinaryPath());
 }
 
 MarkdApplication::~MarkdApplication() = default;

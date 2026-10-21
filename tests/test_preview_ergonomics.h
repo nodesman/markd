@@ -2,15 +2,19 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QDir>
 #include <cassert>
 #include <iostream>
 #include "Zinsser.h"
 #include "core/Converter.h"
+#include "core/HtmlClipboardProvider.h"
 #include "ui/MainWindow.h"
 #include "ui/ModeSwitcher.h"
 #include "ui/PreviewView.h"
+#include "ui/StatusBarTelemetry.h"
 
 inline void testPreviewEditorialErgonomics(QApplication& app) {
     using Zinsser::describe;
@@ -198,4 +202,121 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
             assert(win.modeSwitcher()->currentMode() == ModeSwitcher::DocumentMode::Edit);
         });
     });
+
+    describe("Standalone HTML and PDF exporter engine", [&]() {
+        it("bundles self-contained standalone html and strips multi-sibling nested interactive chrome", [&]() {
+            const QString multiBlockDom =
+                "<!DOCTYPE html><html><head><link rel=\"stylesheet\" href=\"styles/obsidian.css\"></head><body>"
+                "<article id=\"content\" class=\"markdown-rendered\">"
+                "<div class=\"code-block-card\">"
+                "<div class=\"code-block-header\"><span class=\"code-lang\">rust</span><button class=\"copy-btn\">Copy</button></div>"
+                "<pre class=\"hljs\"><code>fn first() {}</code></pre>"
+                "</div>"
+                "<p>Middle prose paragraph</p>"
+                "<div class=\"code-block-card\">"
+                "<div class=\"code-block-header\"><span class=\"code-lang\">cpp</span><button class=\"copy-btn\">Copy</button></div>"
+                "<pre class=\"hljs\"><code>int second() { return 0; }</code></pre>"
+                "</div>"
+                "<div class=\"expandable-container\">"
+                "<div class=\"expandable-toolbar\"><div class=\"mermaid-zoom-controls\"><button>+</button><button>-</button></div></div>"
+                "<div class=\"mermaid-viewport\"><svg><text>Diagram 1</text></svg></div>"
+                "</div>"
+                "<p>Between diagrams</p>"
+                "<div class=\"expandable-container\">"
+                "<div class=\"expandable-toolbar\"><div class=\"mermaid-zoom-controls\"><button>100%</button></div></div>"
+                "<div class=\"mermaid-viewport\"><svg><text>Diagram 2</text></svg></div>"
+                "</div>"
+                "<div class=\"table-wrapper\"><button class=\"table-expand-btn\">⛶</button><table><tr><th>H</th></tr><tr><td>D</td></tr></table></div>"
+                "<p><span class=\"katex\"><span class=\"katex-mathml\"><math>x^2</math></span><span class=\"katex-html\">x^2</span></span></p>"
+                "<div class=\"fullview-overlay\"><div class=\"fullview-header\"><div class=\"fullview-toolbar\"><button class=\"close-btn\">✕</button></div></div><div class=\"fullview-body\">Modal</div></div>"
+                "<script src=\"vendor/mermaid/mermaid.min.js\"></script>"
+                "</article></body></html>";
+
+            const QString bundled = Converter::bundleStandaloneHtml(multiBlockDom, "Standalone Spec");
+            const QString articleBody = HtmlClipboardProvider::extractInnerHtml(bundled);
+            assert(bundled.startsWith("<!DOCTYPE html><html lang=\"en\">"));
+            assert(bundled.contains("<style>"));
+            assert(bundled.contains("Middle prose paragraph"));
+            assert(bundled.contains("Between diagrams"));
+            assert(bundled.contains("<span class=\"code-lang\">rust</span>"));
+            assert(bundled.contains("<span class=\"code-lang\">cpp</span>"));
+            assert(bundled.contains("katex-mathml"));
+            assert(bundled.contains("katex-html"));
+            assert(!bundled.contains("qrc:/"));
+            assert(!bundled.contains("<link"));
+            assert(!bundled.contains("<script"));
+            assert(!bundled.contains("url(fonts/"));
+            assert(!articleBody.contains("copy-btn"));
+            assert(!articleBody.contains("table-expand-btn"));
+            assert(!articleBody.contains("expandable-toolbar"));
+            assert(!articleBody.contains("mermaid-zoom-controls"));
+            assert(!articleBody.contains("fullview-overlay"));
+            assert(!articleBody.contains("fullview-toolbar"));
+            assert(!articleBody.contains("close-btn"));
+        });
+
+        it("exports latest edit buffer over stale preview dom and notifies status bar", [&]() {
+            MainWindow win;
+            win.resize(900, 650);
+            win.show();
+
+            emit win.previewView()->bridge()->bridgeInitialized();
+            win.previewView()->setMarkdown("# Stale Preview Heading");
+            emit win.previewView()->bridge()->documentRendered(1);
+            assert(win.previewView()->renderedMarkdown() == "# Stale Preview Heading");
+
+            win.setMode(MainWindow::Mode::Edit);
+            win.editor()->setPlainText("# Intermediate Edit");
+            assert(win.previewView()->renderedMarkdown().isEmpty());
+            win.editor()->setPlainText("# Fresh Edit Heading\n\n| Col |\n|:---:|\n| Val |");
+            assert(win.previewView()->renderedMarkdown().isEmpty());
+
+            const QString exportPath = QDir::tempPath() + "/markd_stale_guard_export.html";
+            QFile::remove(exportPath);
+            bool exportOk = false;
+            win.exportHtml(exportPath, [&](bool ok) {
+                exportOk = ok;
+            });
+            assert(exportOk);
+            assert(QFileInfo::exists(exportPath));
+
+            QFile exportedFile(exportPath);
+            assert(exportedFile.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString exportedHtml = QString::fromUtf8(exportedFile.readAll());
+            exportedFile.close();
+            QFile::remove(exportPath);
+
+            assert(exportedHtml.startsWith("<!DOCTYPE html><html lang=\"en\">"));
+            assert(exportedHtml.contains("<style>"));
+            assert(exportedHtml.contains("Fresh Edit Heading"));
+            assert(!exportedHtml.contains("Stale Preview Heading"));
+            const QRegularExpression duplicateStyleRegex("<[^>]+\\bstyle=[\"'][^\"']*[\"'][^>]+\\bstyle=");
+            assert(!duplicateStyleRegex.match(exportedHtml).hasMatch());
+            assert(win.statusBar()->notificationLabel()->text() == "Exported to HTML");
+        });
+
+        it("prints document to non-empty pdf with magic header and notifies status bar", [&]() {
+            MainWindow win;
+            win.resize(900, 650);
+            win.show();
+
+            win.editor()->setPlainText("# PDF Publication Test\n\nCrisp contrast body paragraph.");
+
+            const QString pdfPath = QDir::tempPath() + "/markd_publication_test.pdf";
+            QFile::remove(pdfPath);
+            win.printToPdf(pdfPath);
+
+            assert(QFileInfo::exists(pdfPath));
+            assert(QFileInfo(pdfPath).size() > 0);
+            QFile pdfFile(pdfPath);
+            assert(pdfFile.open(QIODevice::ReadOnly));
+            const QByteArray header = pdfFile.read(5);
+            pdfFile.close();
+            QFile::remove(pdfPath);
+
+            assert(header == QByteArray("%PDF-"));
+            assert(win.statusBar()->notificationLabel()->text() == "Exported to PDF");
+        });
+    });
 }
+

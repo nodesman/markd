@@ -17,6 +17,7 @@ public:
     ~MarkdApplication() override;
 
     static MarkdApplication* instance();
+    static void applyChromiumStabilityFlags();
 
     MainWindow* createWindow(const QString& filePath = QString());
     QList<MainWindow*> windows() const;

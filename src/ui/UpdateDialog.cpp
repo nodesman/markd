@@ -108,7 +108,7 @@ void UpdateDialog::setUpdateInfo(const UpdateInfo& info) {
 void UpdateDialog::updateUiForState() {
     if (m_info.state == UpdateState::Checking) {
         m_statusLabel->setText(QStringLiteral("Checking for updates…"));
-        m_subtitleLabel->setText(QStringLiteral("Contacting updates.markd.dev…"));
+        m_subtitleLabel->setText(QStringLiteral("Contacting markd.aramudan.dev…"));
         m_commandContainer->setVisible(false);
         m_secondaryBtn->setVisible(true);
         m_secondaryBtn->setText(QStringLiteral("Cancel"));
@@ -155,27 +155,16 @@ void UpdateDialog::updateUiForState() {
 }
 
 void UpdateDialog::copyCommand() {
-    auto* clipboard = QApplication::clipboard();
-    if (clipboard) {
-        clipboard->setText(m_info.upgradeCommand);
-    }
+    if (auto* clipboard = QApplication::clipboard()) clipboard->setText(m_info.upgradeCommand);
     m_copiedBadge->setVisible(true);
     m_badgeTimer->start(2000);
 }
 
 void UpdateDialog::triggerPrimaryAction() {
-    if (m_info.state == UpdateState::UpToDate) {
-        accept();
-        return;
-    }
-    if (m_info.state == UpdateState::CheckFailed) {
-        emit retryRequested();
-        return;
-    }
+    if (m_info.state == UpdateState::UpToDate) { accept(); return; }
+    if (m_info.state == UpdateState::CheckFailed) { emit retryRequested(); return; }
     if (m_info.provenance == InstallationProvenance::StandaloneBinary) {
-        if (!m_info.downloadUrl.isEmpty()) {
-            QDesktopServices::openUrl(QUrl(m_info.downloadUrl));
-        }
+        if (!m_info.downloadUrl.isEmpty()) QDesktopServices::openUrl(QUrl(m_info.downloadUrl));
         return;
     }
     copyCommand();
@@ -183,6 +172,7 @@ void UpdateDialog::triggerPrimaryAction() {
 
 void UpdateDialog::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
+        m_dragging = true;
         m_dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
         event->accept();
         return;
@@ -191,10 +181,15 @@ void UpdateDialog::mousePressEvent(QMouseEvent* event) {
 }
 
 void UpdateDialog::mouseMoveEvent(QMouseEvent* event) {
-    if (event->buttons() & Qt::LeftButton) {
+    if (m_dragging && (event->buttons() & Qt::LeftButton)) {
         move(event->globalPosition().toPoint() - m_dragPosition);
         event->accept();
         return;
     }
     QDialog::mouseMoveEvent(event);
+}
+
+void UpdateDialog::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) m_dragging = false;
+    QDialog::mouseReleaseEvent(event);
 }

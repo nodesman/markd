@@ -45,6 +45,14 @@ inline void testConverterPipeline() {
             assert(html.contains("code"));
         });
 
+        it("preserves latex math subscripts and asterisks during edit mode html fragment conversion", [&]() {
+            QString md = "# Quantum\n\n$$A_{i,j} * B_{j,k}$$\n\nInline $x_1 * x_2$ formula.";
+            QString html = Converter::toHtmlFragment(md);
+            assert(html.contains("$$A_{i,j} * B_{j,k}$$"));
+            assert(html.contains("$x_1 * x_2$"));
+            assert(!html.contains("<em>{i,j}"));
+        });
+
         it("wraps rendered markdown into self-contained html document", [&]() {
             QString md = "# Title\n\n**Bold Text** and `code`";
             QString fullDoc = Converter::toFullHtmlDocument(md);
@@ -66,3 +74,4 @@ inline void testConverterPipeline() {
         });
     });
 }
+

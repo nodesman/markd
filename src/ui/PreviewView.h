@@ -26,6 +26,7 @@ public:
     bool isBridgeReady() const { return m_bridgeReady; }
     QString pendingMarkdown() const { return m_pendingMarkdown; }
     QString currentMarkdown() const { return m_currentMarkdown; }
+    QString renderedMarkdown() const { return m_renderedMarkdown; }
 
     void setMarkdown(const QString& markdown);
     void setMarkdown(const QString& markdown, bool preserveScroll);
@@ -35,6 +36,7 @@ public:
     void scrollToHeading(const QString& id);
     void setTheme(const QString& themeName);
     void setZoomFactor(qreal factor);
+    qreal zoomFactor() const { return m_zoomFactor; }
 
     void findText(const QString& text, bool forward = true, bool caseSensitive = false);
     void findNext();
@@ -43,6 +45,8 @@ public:
     void printToPdf(const QString& filePath, const QPageLayout& layout = QPageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait, QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter));
     void toHtml(const std::function<void(const QString&)>& callback);
 
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 signals:
     void bridgeInitialized();
     void tocUpdated(const QString& tocJson);
@@ -50,8 +54,11 @@ signals:
     void findResult(int activeMatch, int totalMatches);
     void documentRendered(int headingCount);
     void pdfPrintingFinished(const QString& filePath, bool success);
+    void zoomDeltaRequested(qreal delta);
 
 private:
+    void installWebViewEventFilters();
+
     QWebEngineView* m_webView = nullptr;
     WebBridge* m_bridge = nullptr;
     QWebChannel* m_channel = nullptr;
@@ -61,7 +68,10 @@ private:
     QString m_pendingMarkdown;
     QJsonObject m_pendingOptions;
     QString m_currentMarkdown;
+    QString m_renderedMarkdown;
     QString m_currentActiveHeading;
     QString m_lastFindText;
     bool m_lastFindCaseSensitive = false;
+    qreal m_zoomFactor = 1.0;
 };
+

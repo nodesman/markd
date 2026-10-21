@@ -1,26 +1,29 @@
 #include "ui/MenuBuilder.h"
 #include <QKeySequence>
 
-MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* parent) {
+MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* parent)
+{
     Actions actions;
     if (!menuBar) return actions;
     if (!parent) parent = menuBar;
 
-    // Clear any default items
     menuBar->clear();
+    buildFileMenu(menuBar, parent, actions);
+    buildEditMenu(menuBar, parent, actions);
+    buildViewMenu(menuBar, parent, actions);
+    buildHelpMenu(menuBar, parent, actions);
+    return actions;
+}
 
-    // ==========================================
-    // 1. File Menu
-    // ==========================================
+void MenuBuilder::buildFileMenu(QMenuBar* menuBar, QObject* parent, Actions& actions)
+{
     QMenu* fileMenu = menuBar->addMenu(QObject::tr("&File"));
 
-    // Open… (Cmd+O / Ctrl+O)
     actions.openAction = new QAction(QObject::tr("&Open…"), parent);
     actions.openAction->setObjectName("action_open");
     actions.openAction->setShortcut(QKeySequence::Open);
     fileMenu->addAction(actions.openAction);
 
-    // Save (Cmd+S / Ctrl+S)
     actions.saveAction = new QAction(QObject::tr("&Save"), parent);
     actions.saveAction->setObjectName("action_save");
     actions.saveAction->setShortcut(QKeySequence::Save);
@@ -28,7 +31,6 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 
     fileMenu->addSeparator();
 
-    // Export to HTML… (Shift+Cmd+E / Ctrl+Shift+E)
     actions.exportHtmlAction = new QAction(QObject::tr("&Export to HTML…"), parent);
     actions.exportHtmlAction->setObjectName("action_export_html");
 #if defined(Q_OS_MACOS)
@@ -38,7 +40,6 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #endif
     fileMenu->addAction(actions.exportHtmlAction);
 
-    // Print / Export PDF… (Cmd+P / Ctrl+P)
     actions.printPdfAction = new QAction(QObject::tr("&Print / Export PDF…"), parent);
     actions.printPdfAction->setObjectName("action_print_pdf");
     actions.printPdfAction->setShortcut(QKeySequence::Print);
@@ -46,7 +47,6 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 
     fileMenu->addSeparator();
 
-    // Close Window / Exit (Cmd+W on macOS, Alt+F4 on Win, Ctrl+Q on Linux)
     actions.closeWindowAction = new QAction(QObject::tr("&Close Window / Exit"), parent);
     actions.closeWindowAction->setObjectName("action_close_window");
 #if defined(Q_OS_MACOS)
@@ -57,19 +57,17 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
     actions.closeWindowAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
 #endif
     fileMenu->addAction(actions.closeWindowAction);
+}
 
-    // ==========================================
-    // 2. Edit Menu
-    // ==========================================
+void MenuBuilder::buildEditMenu(QMenuBar* menuBar, QObject* parent, Actions& actions)
+{
     QMenu* editMenu = menuBar->addMenu(QObject::tr("&Edit"));
 
-    // Undo (Cmd+Z / Ctrl+Z)
     actions.undoAction = new QAction(QObject::tr("&Undo"), parent);
     actions.undoAction->setObjectName("action_undo");
     actions.undoAction->setShortcut(QKeySequence::Undo);
     editMenu->addAction(actions.undoAction);
 
-    // Redo (Shift+Cmd+Z on macOS/Linux, Ctrl+Y on Win)
     actions.redoAction = new QAction(QObject::tr("&Redo"), parent);
     actions.redoAction->setObjectName("action_redo");
     actions.redoAction->setShortcut(QKeySequence::Redo);
@@ -77,19 +75,16 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 
     editMenu->addSeparator();
 
-    // Cut (Cmd+X / Ctrl+X)
     actions.cutAction = new QAction(QObject::tr("Cu&t"), parent);
     actions.cutAction->setObjectName("action_cut");
     actions.cutAction->setShortcut(QKeySequence::Cut);
     editMenu->addAction(actions.cutAction);
 
-    // Copy (Cmd+C / Ctrl+C)
     actions.copyAction = new QAction(QObject::tr("&Copy"), parent);
     actions.copyAction->setObjectName("action_copy");
     actions.copyAction->setShortcut(QKeySequence::Copy);
     editMenu->addAction(actions.copyAction);
 
-    // Copy as HTML (Opt+Cmd+C on macOS, Ctrl+Shift+C on Win/Linux)
     actions.copyHtmlAction = new QAction(QObject::tr("Copy as &HTML"), parent);
     actions.copyHtmlAction->setObjectName("action_copy_html");
 #if defined(Q_OS_MACOS)
@@ -99,13 +94,11 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #endif
     editMenu->addAction(actions.copyHtmlAction);
 
-    // Paste (Cmd+V / Ctrl+V)
     actions.pasteAction = new QAction(QObject::tr("&Paste"), parent);
     actions.pasteAction->setObjectName("action_paste");
     actions.pasteAction->setShortcut(QKeySequence::Paste);
     editMenu->addAction(actions.pasteAction);
 
-    // Select All (Cmd+A / Ctrl+A)
     actions.selectAllAction = new QAction(QObject::tr("Select &All"), parent);
     actions.selectAllAction->setObjectName("action_select_all");
     actions.selectAllAction->setShortcut(QKeySequence::SelectAll);
@@ -113,18 +106,16 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 
     editMenu->addSeparator();
 
-    // Find in Document (Cmd+F / Ctrl+F)
     actions.findAction = new QAction(QObject::tr("&Find in Document"), parent);
     actions.findAction->setObjectName("action_find");
     actions.findAction->setShortcut(QKeySequence::Find);
     editMenu->addAction(actions.findAction);
+}
 
-    // ==========================================
-    // 3. View Menu
-    // ==========================================
+void MenuBuilder::buildViewMenu(QMenuBar* menuBar, QObject* parent, Actions& actions)
+{
     QMenu* viewMenu = menuBar->addMenu(QObject::tr("&View"));
 
-    // Mode: Edit / Preview (Cmd+E / Ctrl+E)
     actions.toggleModeAction = new QAction(QObject::tr("&Mode: Edit / Preview"), parent);
     actions.toggleModeAction->setObjectName("action_toggle_mode");
 #if defined(Q_OS_MACOS)
@@ -134,7 +125,6 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #endif
     viewMenu->addAction(actions.toggleModeAction);
 
-    // Toggle Sidebar (Cmd+\ / Ctrl+\, F9)
     actions.toggleSidebarAction = new QAction(QObject::tr("Toggle &Sidebar"), parent);
     actions.toggleSidebarAction->setObjectName("action_toggle_sidebar");
     actions.toggleSidebarAction->setCheckable(true);
@@ -144,13 +134,9 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #else
     QKeySequence primarySidebarShortcut(Qt::CTRL | Qt::Key_Backslash);
 #endif
-    actions.toggleSidebarAction->setShortcuts({
-        primarySidebarShortcut,
-        QKeySequence(Qt::Key_F9)
-    });
+    actions.toggleSidebarAction->setShortcuts({primarySidebarShortcut, QKeySequence(Qt::Key_F9)});
     viewMenu->addAction(actions.toggleSidebarAction);
 
-    // Toggle Word Wrap (Opt+Z / Alt+Z)
     actions.toggleWordWrapAction = new QAction(QObject::tr("Toggle &Word Wrap"), parent);
     actions.toggleWordWrapAction->setObjectName("action_toggle_word_wrap");
     actions.toggleWordWrapAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Z));
@@ -158,19 +144,16 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 
     viewMenu->addSeparator();
 
-    // Zoom In (Cmd++ / Ctrl++)
     actions.zoomInAction = new QAction(QObject::tr("Zoom &In"), parent);
     actions.zoomInAction->setObjectName("action_zoom_in");
     actions.zoomInAction->setShortcut(QKeySequence::ZoomIn);
     viewMenu->addAction(actions.zoomInAction);
 
-    // Zoom Out (Cmd+- / Ctrl+-)
     actions.zoomOutAction = new QAction(QObject::tr("Zoom &Out"), parent);
     actions.zoomOutAction->setObjectName("action_zoom_out");
     actions.zoomOutAction->setShortcut(QKeySequence::ZoomOut);
     viewMenu->addAction(actions.zoomOutAction);
 
-    // Actual Size (100%) (Cmd+0 / Ctrl+0)
     actions.actualSizeAction = new QAction(QObject::tr("&Actual Size (100%)"), parent);
     actions.actualSizeAction->setObjectName("action_actual_size");
 #if defined(Q_OS_MACOS)
@@ -180,27 +163,40 @@ MenuBuilder::Actions MenuBuilder::buildMenuBar(QMenuBar* menuBar, QObject* paren
 #endif
     viewMenu->addAction(actions.actualSizeAction);
 
-    // ==========================================
-    // 4. Help Menu (or macOS App Menu integration)
-    // ==========================================
+    viewMenu->addSeparator();
+
+    actions.toggleFullScreenAction = new QAction(QObject::tr("Toggle &Full Screen"), parent);
+    actions.toggleFullScreenAction->setObjectName("action_toggle_fullscreen");
+    actions.toggleFullScreenAction->setCheckable(true);
+    actions.toggleFullScreenAction->setShortcutContext(Qt::ApplicationShortcut);
+    actions.toggleFullScreenAction->setShortcuts({
+        QKeySequence::FullScreen,
+        QKeySequence(Qt::ALT | Qt::Key_Return),
+        QKeySequence(Qt::ALT | Qt::Key_Enter)
+    });
+    viewMenu->addAction(actions.toggleFullScreenAction);
+}
+
+void MenuBuilder::buildHelpMenu(QMenuBar* menuBar, QObject* parent, Actions& actions)
+{
     QMenu* helpMenu = menuBar->addMenu(QObject::tr("&Help"));
 
-    // About Markd
     actions.aboutAction = new QAction(QObject::tr("&About Markd"), parent);
     actions.aboutAction->setObjectName("action_about");
     actions.aboutAction->setMenuRole(QAction::AboutRole);
     helpMenu->addAction(actions.aboutAction);
 
-    // Check for Updates…
     actions.checkUpdatesAction = new QAction(QObject::tr("Check for &Updates…"), parent);
     actions.checkUpdatesAction->setObjectName("action_check_updates");
     actions.checkUpdatesAction->setMenuRole(QAction::ApplicationSpecificRole);
     helpMenu->addAction(actions.checkUpdatesAction);
 
-    // Open Demo Showcase
+    actions.makeDefaultAction = new QAction(QObject::tr("Make Default for &Markdown…"), parent);
+    actions.makeDefaultAction->setObjectName("action_make_default_md");
+    actions.makeDefaultAction->setMenuRole(QAction::ApplicationSpecificRole);
+    helpMenu->addAction(actions.makeDefaultAction);
+
     actions.openShowcaseAction = new QAction(QObject::tr("Open Demo &Showcase"), parent);
     actions.openShowcaseAction->setObjectName("action_open_showcase");
     helpMenu->addAction(actions.openShowcaseAction);
-
-    return actions;
 }

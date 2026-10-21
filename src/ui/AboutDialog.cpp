@@ -58,6 +58,11 @@ void AboutDialog::setupUi() {
     titleLayout->addWidget(m_versionLabel);
     mainLayout->addLayout(titleLayout);
 
+    m_updateStatusLabel = new QLabel(QStringLiteral("✓ Up to date"), this);
+    m_updateStatusLabel->setObjectName(QStringLiteral("aboutUpdateStatusLabel"));
+    m_updateStatusLabel->setAlignment(Qt::AlignCenter);
+    mainLayout->addWidget(m_updateStatusLabel);
+
     m_inscriptionLabel = new QLabel(QString::fromUtf8("மேற்கடல் ஆம்ஸ்டர்டாமில் வடித்த அறம் 🇳🇱"), this);
     m_inscriptionLabel->setObjectName(QStringLiteral("tamilInscriptionLabel"));
     m_inscriptionLabel->setAlignment(Qt::AlignCenter);
@@ -77,7 +82,7 @@ void AboutDialog::setupUi() {
     });
     mainLayout->addWidget(m_checkUpdatesBtn);
 
-    m_footerLabel = new QLabel(QStringLiteral("aramudan.dev/markd • © Raj Aramudan"), this);
+    m_footerLabel = new QLabel(QStringLiteral("markd.aramudan.dev • © Raj Aramudan"), this);
     m_footerLabel->setObjectName(QStringLiteral("aboutFooterLabel"));
     m_footerLabel->setAlignment(Qt::AlignCenter);
     mainLayout->addWidget(m_footerLabel);
@@ -103,6 +108,21 @@ QString AboutDialog::versionText() const {
     return m_versionLabel->text();
 }
 
+QString AboutDialog::footerText() const {
+    if (!m_footerLabel) return QString();
+    return m_footerLabel->text();
+}
+
+QString AboutDialog::silentUpdateStatusText() const {
+    if (!m_updateStatusLabel) return QString();
+    return m_updateStatusLabel->text();
+}
+
+void AboutDialog::setSilentUpdateStatus(const QString& statusText) {
+    if (!m_updateStatusLabel) return;
+    m_updateStatusLabel->setText(statusText);
+}
+
 void AboutDialog::dismiss() {
     reject();
 }
@@ -118,6 +138,7 @@ void AboutDialog::keyPressEvent(QKeyEvent* event) {
 
 void AboutDialog::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
+        m_dragging = true;
         m_dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
         event->accept();
         return;
@@ -126,10 +147,17 @@ void AboutDialog::mousePressEvent(QMouseEvent* event) {
 }
 
 void AboutDialog::mouseMoveEvent(QMouseEvent* event) {
-    if (event->buttons() & Qt::LeftButton) {
+    if (m_dragging && (event->buttons() & Qt::LeftButton)) {
         move(event->globalPosition().toPoint() - m_dragPosition);
         event->accept();
         return;
     }
     QDialog::mouseMoveEvent(event);
+}
+
+void AboutDialog::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        m_dragging = false;
+    }
+    QDialog::mouseReleaseEvent(event);
 }

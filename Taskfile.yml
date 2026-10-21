@@ -9,6 +9,11 @@ tasks:
     cmds:
       - task -l
 
+  icons:
+    desc: Validate single-source app_icon.png via ffprobe and generate cross-platform .ico and .icns icons via ffmpeg
+    cmds:
+      - bash scripts/generate_icons.sh
+
   configure:
     desc: Configure CMake build for Markd with Qt 6.5.3
     cmds:

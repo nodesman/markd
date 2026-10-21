@@ -32,14 +32,22 @@ public:
         QAction* zoomInAction = nullptr;
         QAction* zoomOutAction = nullptr;
         QAction* actualSizeAction = nullptr;
+        QAction* toggleFullScreenAction = nullptr;
 
         // Help / App
         QAction* aboutAction = nullptr;
         QAction* checkUpdatesAction = nullptr;
+        QAction* makeDefaultAction = nullptr;
         QAction* openShowcaseAction = nullptr;
     };
 
     // Builds and attaches standard File, Edit, View, and Help menus to the menuBar.
     // Populates and returns the Actions struct for connecting slots.
     static Actions buildMenuBar(QMenuBar* menuBar, QObject* parent = nullptr);
+
+private:
+    static void buildFileMenu(QMenuBar* menuBar, QObject* parent, Actions& actions);
+    static void buildEditMenu(QMenuBar* menuBar, QObject* parent, Actions& actions);
+    static void buildViewMenu(QMenuBar* menuBar, QObject* parent, Actions& actions);
+    static void buildHelpMenu(QMenuBar* menuBar, QObject* parent, Actions& actions);
 };
