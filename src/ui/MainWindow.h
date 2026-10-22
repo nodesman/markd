@@ -17,13 +17,13 @@
 #include "ui/StatusBarTelemetry.h"
 #include "ui/FindBarOverlay.h"
 #include "core/HtmlClipboardProvider.h"
+#include "core/UpdateChecker.h"
 #include <cstdint>
 #include <memory>
 #include <QPointer>
 
 class AboutDialog;
 class UpdateDialog;
-class UpdateChecker;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -81,6 +81,10 @@ public:
     void setIsCopyingHtml(bool copying) { m_isCopyingHtml = copying; }
     uint64_t clipboardOpGeneration() const { return m_clipboardOpGeneration; }
 
+    void setUpdateTransport(std::shared_ptr<IUpdateTransport> transport);
+    QTimer* startupUpdateTimer() const { return m_startupUpdateTimer; }
+    UpdateInfo lastUpdateInfo() const { return m_lastUpdateInfo; }
+
 signals:
     void sidebarToggled(bool collapsed);
     void findResult(int activeMatch, int totalMatches);
@@ -90,6 +94,7 @@ public slots:
     void updateToc();
     void onFind();
     void onToggleFullScreen();
+    void runBackgroundUpdateCheck();
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -121,6 +126,9 @@ private slots:
 private:
     void setupUI();
     void setupClipboardBridge();
+    void ensureUpdateChecker();
+    void handleUpdateCheckFinished(const UpdateInfo& info);
+    void handleUpdateCheckFailed(const QString& err);
     void repositionFindBarOverlay();
     void updateWindowTitle();
     void switchToEditMode();
@@ -147,6 +155,10 @@ private:
 
     QPointer<AboutDialog> m_aboutDialog;
     QPointer<UpdateDialog> m_updateDialog;
+    QTimer* m_startupUpdateTimer = nullptr;
+    UpdateInfo m_lastUpdateInfo;
+    bool m_hasUpdateInfo = false;
+    bool m_isBackgroundUpdateCheck = false;
     std::unique_ptr<UpdateChecker> m_updateChecker;
 
     int m_savedWidth = 250;

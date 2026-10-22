@@ -3,7 +3,8 @@
 
 QString ProvenanceDetector::resolveTargetBinaryPath(const QString& appPath, const QString& appImageEnv) {
     const QString envAppImage = appImageEnv.isEmpty() ? qEnvironmentVariable("APPIMAGE") : appImageEnv;
-    const QString rawPath = appPath.isEmpty() ? QCoreApplication::applicationFilePath() : appPath;
+    const QString fallbackPath = qEnvironmentVariable("MARKD_APP_PATH", QCoreApplication::applicationFilePath());
+    const QString rawPath = appPath.isEmpty() ? fallbackPath : appPath;
     const bool isFuseMount = appPath.isEmpty() || rawPath.contains(QStringLiteral("/.mount_"));
 
     if (!envAppImage.isEmpty() && isFuseMount) {

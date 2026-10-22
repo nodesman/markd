@@ -11,12 +11,13 @@
 class NetworkUpdateTransport : public IUpdateTransport {
 public:
     NetworkUpdateTransport()
-        : m_manager(std::make_unique<QNetworkAccessManager>())
+        : m_manager(new QNetworkAccessManager())
     {
     }
 
     ~NetworkUpdateTransport() override {
         abortActiveReply();
+        if (m_manager) m_manager->deleteLater();
     }
 
     void fetch(
@@ -31,14 +32,17 @@ public:
         m_reply = m_manager->get(request);
         QPointer<QNetworkReply> guardedReply(m_reply);
         auto onFinished = [guardedReply, callback]() { dispatchReply(guardedReply, callback); };
-        QObject::connect(m_reply.data(), &QNetworkReply::finished, onFinished);
+        QObject::connect(m_reply.data(), &QNetworkReply::finished, m_manager.data(), onFinished);
     }
 
 private:
     void abortActiveReply() {
         if (!m_reply) return;
-        m_reply->abort();
-        m_reply->deleteLater();
+        QPointer<QNetworkReply> activeReply = m_reply;
+        m_reply.clear();
+        activeReply->setProperty("markd_aborted", true);
+        if (!activeReply->isFinished()) activeReply->abort();
+        activeReply->deleteLater();
     }
 
     static void dispatchReply(
@@ -46,12 +50,13 @@ private:
         const std::function<void(bool, const QByteArray&, const QString&)>& callback) {
         if (!guardedReply) return;
         guardedReply->deleteLater();
+        if (guardedReply->property("markd_aborted").toBool()) return;
         const bool hasError = guardedReply->error() != QNetworkReply::NoError;
         if (hasError) return callback(false, QByteArray(), guardedReply->errorString());
         callback(true, guardedReply->readAll(), QString());
     }
 
-    std::unique_ptr<QNetworkAccessManager> m_manager;
+    QPointer<QNetworkAccessManager> m_manager;
     QPointer<QNetworkReply> m_reply;
 };
 

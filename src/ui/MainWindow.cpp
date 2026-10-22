@@ -4,6 +4,7 @@
 #include "core/Converter.h"
 #include "core/FileAssociationManager.h"
 #include "core/UpdateChecker.h"
+#include "core/UpdateNudgePolicy.h"
 #include "core/Version.h"
 #include <QFile>
 #include <QFileInfo>
@@ -48,6 +49,13 @@ MainWindow::MainWindow(const QString& filePath, Mode initialMode, bool startColl
 
 MainWindow::~MainWindow()
 {
+    if (m_startupUpdateTimer) {
+        m_startupUpdateTimer->stop();
+    }
+    if (m_updateChecker) {
+        m_updateChecker->disconnect(this);
+        m_updateChecker.reset();
+    }
     ++m_clipboardOpGeneration;
     m_isCopyingHtml = false;
 }
@@ -376,6 +384,11 @@ void MainWindow::setupUI()
     connect(m_findBarOverlay, &FindBarOverlay::findPreviousRequested, this, &MainWindow::findPrevious);
     connect(m_findBarOverlay, &FindBarOverlay::closeRequested, this, &MainWindow::closeFindBar);
 
+    m_startupUpdateTimer = new QTimer(this);
+    m_startupUpdateTimer->setSingleShot(true);
+    connect(m_startupUpdateTimer, &QTimer::timeout, this, &MainWindow::runBackgroundUpdateCheck);
+    m_startupUpdateTimer->start(3000);
+
     resize(900, 650);
     repositionFindBarOverlay();
 }
@@ -674,16 +687,93 @@ void MainWindow::onAbout()
 
     m_aboutDialog = new AboutDialog(this);
     m_aboutDialog->setAttribute(Qt::WA_DeleteOnClose);
+    if (m_hasUpdateInfo) {
+        m_aboutDialog->setSilentUpdateStatus(UpdateNudgePolicy::formatAboutStatus(m_lastUpdateInfo));
+    }
     connect(m_aboutDialog, &QDialog::finished, this, [this](int) {
+        m_aboutDialog.clear();
         restoreActiveFocus();
     });
     connect(m_aboutDialog, &AboutDialog::checkUpdatesRequested, this, [this]() {
-        if (m_aboutDialog) {
-            m_aboutDialog->dismiss();
-        }
+        if (m_aboutDialog) m_aboutDialog->dismiss();
         onCheckUpdates();
     });
     m_aboutDialog->open();
+}
+
+void MainWindow::ensureUpdateChecker()
+{
+    if (m_updateChecker) return;
+    m_updateChecker = std::make_unique<UpdateChecker>();
+    QPointer<MainWindow> self(this);
+    connect(m_updateChecker.get(), &UpdateChecker::checkFinished, this, [self](const UpdateInfo& info) {
+        if (self) self->handleUpdateCheckFinished(info);
+    });
+    connect(m_updateChecker.get(), &UpdateChecker::checkFailed, this, [self](const QString& err) {
+        if (self) self->handleUpdateCheckFailed(err);
+    });
+}
+
+void MainWindow::setUpdateTransport(std::shared_ptr<IUpdateTransport> transport)
+{
+    ensureUpdateChecker();
+    m_updateChecker->setTransport(std::move(transport));
+}
+
+void MainWindow::runBackgroundUpdateCheck()
+{
+    if (m_startupUpdateTimer) {
+        m_startupUpdateTimer->stop();
+    }
+    if (m_updateDialog) {
+        return;
+    }
+    ensureUpdateChecker();
+    m_isBackgroundUpdateCheck = true;
+    m_updateChecker->checkForUpdates();
+}
+
+void MainWindow::handleUpdateCheckFinished(const UpdateInfo& info)
+{
+    if (info.state == UpdateState::CheckFailed) {
+        return;
+    }
+    const bool wasBackground = m_isBackgroundUpdateCheck;
+    m_isBackgroundUpdateCheck = false;
+    m_lastUpdateInfo = info;
+    m_hasUpdateInfo = true;
+
+    if (m_aboutDialog) {
+        m_aboutDialog->setSilentUpdateStatus(UpdateNudgePolicy::formatAboutStatus(info));
+    }
+    if (m_updateDialog) {
+        m_updateDialog->setUpdateInfo(info);
+        return;
+    }
+    if (!wasBackground || info.state != UpdateState::UpdateAvailable || !m_statusBar) {
+        return;
+    }
+    if (!UpdateNudgePolicy::evaluateAndRecordRun(info.latestVersion)) {
+        return;
+    }
+    m_statusBar->showActionableNotification(
+        UpdateNudgePolicy::formatNudgeMessage(info),
+        UpdateNudgePolicy::resolveCopyPayload(info),
+        UpdateNudgePolicy::kNudgeDisplayTimeoutMs,
+        info.latestVersion
+    );
+}
+
+void MainWindow::handleUpdateCheckFailed(const QString& err)
+{
+    m_isBackgroundUpdateCheck = false;
+    if (!m_updateDialog) {
+        return;
+    }
+    UpdateInfo failInfo;
+    failInfo.state = UpdateState::CheckFailed;
+    failInfo.errorMessage = err;
+    m_updateDialog->setUpdateInfo(failInfo);
 }
 
 void MainWindow::onCheckUpdates()
@@ -694,6 +784,9 @@ void MainWindow::onCheckUpdates()
         return;
     }
 
+    if (m_startupUpdateTimer) {
+        m_startupUpdateTimer->stop();
+    }
     if (m_statusBar) {
         m_statusBar->showNotification(tr("Checking for updates…"), QStringLiteral("info"), 2000);
     }
@@ -705,44 +798,23 @@ void MainWindow::onCheckUpdates()
     m_updateDialog = new UpdateDialog(initialInfo, this);
     m_updateDialog->setAttribute(Qt::WA_DeleteOnClose);
     connect(m_updateDialog, &QDialog::finished, this, [this](int) {
+        m_updateDialog.clear();
         restoreActiveFocus();
     });
     connect(m_updateDialog, &UpdateDialog::retryRequested, this, [this]() {
-        if (m_statusBar) {
-            m_statusBar->showNotification(tr("Checking for updates…"), QStringLiteral("info"), 2000);
-        }
-        if (m_updateDialog) {
-            UpdateInfo retryInfo;
-            retryInfo.state = UpdateState::Checking;
-            retryInfo.currentVersion = QString::fromUtf8(MARKD_VERSION_STR);
-            m_updateDialog->setUpdateInfo(retryInfo);
-        }
-        if (m_updateChecker) {
-            m_updateChecker->checkForUpdates();
-        }
+        if (m_statusBar) m_statusBar->showNotification(tr("Checking for updates…"), QStringLiteral("info"), 2000);
+        UpdateInfo retryInfo;
+        retryInfo.state = UpdateState::Checking;
+        retryInfo.currentVersion = QString::fromUtf8(MARKD_VERSION_STR);
+        if (m_updateDialog) m_updateDialog->setUpdateInfo(retryInfo);
+        if (!m_updateChecker) return;
+        m_isBackgroundUpdateCheck = false;
+        m_updateChecker->checkForUpdates();
     });
     m_updateDialog->open();
 
-    if (!m_updateChecker) {
-        m_updateChecker = std::make_unique<UpdateChecker>(this);
-        QPointer<MainWindow> self(this);
-        connect(m_updateChecker.get(), &UpdateChecker::checkFinished, this, [self](const UpdateInfo& info) {
-            if (!self) return;
-            if (self->m_updateDialog) {
-                self->m_updateDialog->setUpdateInfo(info);
-            }
-        });
-        connect(m_updateChecker.get(), &UpdateChecker::checkFailed, this, [self](const QString& err) {
-            if (!self) return;
-            if (self->m_updateDialog) {
-                UpdateInfo failInfo;
-                failInfo.state = UpdateState::CheckFailed;
-                failInfo.errorMessage = err;
-                self->m_updateDialog->setUpdateInfo(failInfo);
-            }
-        });
-    }
-
+    ensureUpdateChecker();
+    m_isBackgroundUpdateCheck = false;
     m_updateChecker->checkForUpdates();
 }
 

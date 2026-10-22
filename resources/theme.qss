@@ -339,6 +339,14 @@ QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="info"] {
     color: #58a6ff;
 }
 
+QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="update"] {
+    color: #58a6ff;
+}
+
+QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="update"]:hover {
+    color: #79c0ff;
+}
+
 QStatusBar#statusBarTelemetry QLabel#statusNotificationLabel[level="error"] {
     color: #f85149;
 }

@@ -16,11 +16,13 @@ tasks:
 
   configure:
     desc: Configure CMake build for Markd with Qt 6.5.3
+    run: once
     cmds:
       - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake
 
   build:
     desc: Compile Markd executable and test suite
+    run: once
     deps: [configure]
     cmds:
       - cmake --build {{.BUILD_DIR}} -j8
@@ -59,7 +61,7 @@ tasks:
       - task: coverage-cpp
 
   calisthenics:
-    desc: Run Sovereign Object Calisthenics static analysis audit
+    desc: Run Object Calisthenics static analysis audit
     cmds:
       - node ../../../kernel/quality-gate/calisthenics_auditor.js src
       - node ../../../kernel/quality-gate/calisthenics_auditor.js web/src
@@ -75,6 +77,34 @@ tasks:
     cmds:
       - task: test
 
+  package-macos:
+    desc: Bundle Markd.app via macdeployqt, codesign, and generate .dmg, .tar.gz, and SHA256SUMS.txt
+    run: once
+    deps: [build]
+    cmds:
+      - bash scripts/package_macos.sh
+
+  homebrew-formula:
+    desc: Generate Homebrew formula (markd.rb) from packaged macOS archive
+    deps: [package-macos]
+    cmds:
+      - bash scripts/generate_homebrew_formula.sh --output ../../../lab/markd-website/homebrew/markd.rb
+
+  update-manifest:
+    desc: Update lab/markd-website/api/v1/updates/check with packaged darwin-arm64 SHA-256
+    deps: [package-macos]
+    cmds:
+      - |
+        BIN_SHA="$(shasum -a 256 {{.BUILD_DIR}}/dist/markd-darwin-arm64 | awk '{print $1}')"
+        bash scripts/update_manifest.sh --darwin-arm64-sha256 "$BIN_SHA"
+
+  release:
+    desc: Run tests, package macOS release, generate Homebrew formula, and update edge manifest
+    cmds:
+      - task: test
+      - task: package-macos
+      - task: homebrew-formula
+      - task: update-manifest
 
   run:
     desc: Run Markd executable with optional markdown file (e.g. task run -- file.md)
@@ -110,4 +140,3 @@ tasks:
         EOF
       - chmod +x ~/.local/bin/markd
       - ~/.local/bin/markd --version
-

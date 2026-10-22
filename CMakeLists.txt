@@ -38,6 +38,8 @@ set(COMMON_SOURCES
     src/core/ProvenanceDetector.cpp
     src/core/UpdateChecker.h
     src/core/UpdateChecker.cpp
+    src/core/UpdateNudgePolicy.h
+    src/core/UpdateNudgePolicy.cpp
     src/core/SilentAutoUpdater.h
     src/core/SilentAutoUpdater.cpp
     src/core/DocumentSession.h

@@ -55,17 +55,33 @@ public:
     void setSectionTitle(const QString& title);
     void setSectionVisible(bool visible);
     void showNotification(const QString& message, const QString& level = QStringLiteral("info"), int timeoutMs = 0);
+    void showActionableNotification(const QString& message,
+                                    const QString& copyPayload,
+                                    int timeoutMs = 8000,
+                                    const QString& version = QString());
     void clearNotification();
     void setSelectionMetrics(int words, int chars);
     void clearSelectionMetrics();
 
+    QString actionableCopyPayload() const { return m_actionCopyPayload; }
+    QTimer* notificationTimer() const { return m_notificationTimer; }
     TelemetryLabel* telemetryLabel() const { return m_telemetryLabel; }
     QLabel* sectionLabel() const { return m_sectionLabel; }
     QLabel* notificationLabel() const { return m_notificationLabel; }
     QLabel* encodingLabel() const { return m_encodingLabel; }
     QLabel* zoomLabel() const { return m_zoomLabel; }
 
+signals:
+    void notificationClicked(const QString& copyPayload);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
+    bool handleNotificationPress(QMouseEvent* event);
+    bool handleNotificationRelease(QMouseEvent* event);
+    void activateNotificationAction();
+
     TelemetryLabel* m_telemetryLabel = nullptr;
     QLabel* m_sectionLabel = nullptr;
     QLabel* m_notificationLabel = nullptr;
@@ -74,5 +90,6 @@ private:
     QLabel* m_zoomLabel = nullptr;
     QTimer* m_notificationTimer = nullptr;
     QString m_sectionTitle;
+    QString m_actionCopyPayload;
+    QString m_actionVersion;
 };
-

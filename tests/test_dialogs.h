@@ -12,6 +12,10 @@
 #include <QFile>
 #include <QPixmap>
 #include <QPointer>
+#include <QSettings>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTest>
 #include "Zinsser.h"
 #include "ui/MainWindow.h"
 #include "ui/AboutDialog.h"
@@ -19,6 +23,7 @@
 #include "core/ProvenanceDetector.h"
 #include "core/SilentAutoUpdater.h"
 #include "core/UpdateChecker.h"
+#include "core/UpdateNudgePolicy.h"
 #include "core/Version.h"
 
 inline void testSovereignDialogTrilogy(QApplication& app) {
@@ -702,5 +707,418 @@ inline void testSovereignDialogTrilogy(QApplication& app) {
             assert(aboutDlg.silentUpdateStatusText() == QStringLiteral("✓ Updated to v22.0.0 (active on next launch)"));
         });
     });
+
+    describe("Intermittent status-bar update nudge, cooldown cadence, and background check wiring", [&]() {
+        class ScriptedUpdateTransport : public IUpdateTransport {
+        public:
+            bool success{true};
+            QByteArray payload;
+            QString errorText;
+
+            void fetch(const QUrl& url,
+                       std::function<void(bool, const QByteArray&, const QString&)> callback) override {
+                Q_UNUSED(url);
+                callback(success, payload, errorText);
+            }
+        };
+
+        it("displays actionable status bar update nudge on first detection of newer release", [&]() {
+            QSettings defaultSettings;
+            defaultSettings.remove(QStringLiteral("updates"));
+            defaultSettings.setValue(QStringLiteral("updates/lastNudgedVersion"), QStringLiteral("0.1.0"));
+
+            qputenv("MARKD_APP_PATH", "/opt/homebrew/bin/markd");
+            MainWindow win;
+            win.show();
+            app.processEvents();
+
+            assert(win.startupUpdateTimer() != nullptr);
+            assert(win.startupUpdateTimer()->isSingleShot() == true);
+            assert(win.startupUpdateTimer()->interval() == 3000);
+
+            auto transport = std::make_shared<ScriptedUpdateTransport>();
+            transport->success = true;
+            transport->payload = QByteArrayLiteral("{\"version\": \"0.2.0\"}");
+            win.setUpdateTransport(transport);
+
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+
+            QLabel* notifLabel = win.statusBar()->notificationLabel();
+            assert(notifLabel != nullptr);
+            assert(notifLabel->isVisible() == true);
+            assert(notifLabel->text() == QStringLiteral("↑ Update v0.2.0 available · Click to copy 'brew upgrade markd'"));
+            assert(notifLabel->property("level").toString() == QStringLiteral("update"));
+            assert(notifLabel->cursor().shape() == Qt::PointingHandCursor);
+            assert(win.statusBar()->actionableCopyPayload() == QStringLiteral("brew upgrade markd"));
+            assert(win.statusBar()->notificationTimer() != nullptr);
+            assert(win.statusBar()->notificationTimer()->isActive() == true);
+            assert(win.statusBar()->notificationTimer()->interval() == 8000);
+            assert(!notifLabel->text().contains(QLatin1Char('[')) && !notifLabel->text().contains(QLatin1Char(']')));
+
+            qunsetenv("MARKD_APP_PATH");
+        });
+
+        it("dismisses status bar update nudge after timeout while preserving editor and preview focus", [&]() {
+            assert(UpdateNudgePolicy::kNudgeDisplayTimeoutMs == 8000);
+            assert(UpdateNudgePolicy::kCopiedFeedbackTimeoutMs == 2000);
+
+            MainWindow win;
+            win.show();
+            win.activateWindow();
+            win.setMode(MainWindow::Mode::Edit);
+            win.editor()->setFocus();
+            app.processEvents();
+
+            QWidget* initialFocus = QApplication::focusWidget();
+            assert(win.statusBar()->notificationLabel()->focusPolicy() == Qt::NoFocus);
+
+            win.statusBar()->showActionableNotification(
+                QStringLiteral("↑ Update v0.2.0 available · Click to copy 'brew upgrade markd'"),
+                QStringLiteral("brew upgrade markd"),
+                60,
+                QStringLiteral("0.2.0")
+            );
+            app.processEvents();
+            assert(win.statusBar()->notificationLabel()->isVisible() == true);
+            assert(QApplication::focusWidget() == initialFocus);
+            assert(!win.statusBar()->notificationLabel()->hasFocus());
+
+            QTest::qWait(100);
+            app.processEvents();
+            assert(win.statusBar()->notificationLabel()->isVisible() == false);
+            assert(QApplication::focusWidget() == initialFocus);
+            assert(win.currentMode() == MainWindow::Mode::Edit);
+
+            win.setMode(MainWindow::Mode::Preview);
+            app.processEvents();
+            QWidget* previewFocus = QApplication::focusWidget();
+            win.statusBar()->showActionableNotification(
+                QStringLiteral("↑ Update v0.2.0 available · Click to copy 'brew upgrade markd'"),
+                QStringLiteral("brew upgrade markd"),
+                50
+            );
+            app.processEvents();
+            assert(win.statusBar()->notificationLabel()->isVisible() == true);
+            assert(!win.statusBar()->notificationLabel()->hasFocus());
+            QTest::qWait(90);
+            app.processEvents();
+            assert(win.statusBar()->notificationLabel()->isVisible() == false);
+            assert(QApplication::focusWidget() == previewFocus);
+            assert(win.currentMode() == MainWindow::Mode::Preview);
+        });
+
+        it("suppresses consecutive update nudges across runs two through five and re-displays on cooldown expiry or version hop", [&]() {
+            QTemporaryDir tempDir;
+            assert(tempDir.isValid());
+            QSettings settings(tempDir.filePath(QStringLiteral("nudge_cadence.ini")), QSettings::IniFormat);
+
+            const qint64 t0 = 1700000000LL;
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QString(), t0) == false);
+
+            // Run 1: First detection of v0.2.0 nudges immediately
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("v0.2.0"), t0) == true);
+            assert(settings.value(QStringLiteral("updates/lastNudgedVersion")).toString() == QStringLiteral("0.2.0"));
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 0);
+
+            // Runs 2, 3, 4, 5 within 72 hours are suppressed
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 60) == false);
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 120) == false);
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 180) == false);
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 240) == false);
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 4);
+
+            // Run 6 (5 runs since last nudge) re-displays the nudge and resets counter
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 300) == true);
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 0);
+
+            // Next run before 72 hours is suppressed again
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), t0 + 360) == false);
+
+            // 72+ hours elapsed since last nudge re-displays the nudge even on run 2
+            const qint64 after72h = t0 + 300 + UpdateNudgePolicy::kCooldownSeconds;
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), after72h) == true);
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 0);
+
+            // Mid-cooldown version hop (0.2.0 -> 0.3.0) while runsSinceLastNudge < 5 nudges immediately
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.2.0"), after72h + 60) == false);
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 1);
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("v0.3.0"), after72h + 120) == true);
+            assert(settings.value(QStringLiteral("updates/lastNudgedVersion")).toString() == QStringLiteral("0.3.0"));
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 0);
+
+            // Clamps corrupted negative run counter to zero before incrementing
+            settings.setValue(QStringLiteral("updates/runsSinceLastNudge"), -10);
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(settings, QStringLiteral("0.3.0"), after72h + 180) == false);
+            assert(settings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 1);
+
+            // Verify MainWindow suppresses status bar nudge on Run 2 after Run 1 already nudged
+            QSettings defaultSettings;
+            defaultSettings.remove(QStringLiteral("updates"));
+            assert(UpdateNudgePolicy::evaluateAndRecordRun(QStringLiteral("0.2.0")) == true);
+
+            qputenv("MARKD_APP_PATH", "/opt/homebrew/bin/markd");
+            MainWindow win;
+            win.show();
+            auto transport = std::make_shared<ScriptedUpdateTransport>();
+            transport->success = true;
+            transport->payload = QByteArrayLiteral("{\"version\": \"0.2.0\"}");
+            win.setUpdateTransport(transport);
+
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+            assert(win.statusBar()->notificationLabel()->isVisible() == false);
+            qunsetenv("MARKD_APP_PATH");
+        });
+
+        it("copies upgrade command on status bar nudge click, flashes confirmation, and resets cooldown counter", [&]() {
+            QSettings defaultSettings;
+            defaultSettings.remove(QStringLiteral("updates"));
+            defaultSettings.setValue(QStringLiteral("updates/runsSinceLastNudge"), 3);
+
+            MainWindow win;
+            win.show();
+            app.processEvents();
+
+            QSignalSpy clickedSpy(win.statusBar(), &StatusBarTelemetry::notificationClicked);
+            // Invoke 3-argument signature without explicit version parameter to verify version extraction from message
+            win.statusBar()->showActionableNotification(
+                QStringLiteral("↑ Update v0.2.0 available · Click to copy 'brew upgrade markd'"),
+                QStringLiteral("brew upgrade markd"),
+                8000
+            );
+            app.processEvents();
+
+            QLabel* notifLabel = win.statusBar()->notificationLabel();
+            assert(notifLabel->isVisible() == true);
+
+            // Right click does not trigger copy
+            QMouseEvent rightPress(QEvent::MouseButtonPress, QPointF(5, 5), notifLabel->mapToGlobal(QPoint(5, 5)),
+                                   Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+            QApplication::sendEvent(notifLabel, &rightPress);
+            QMouseEvent rightRelease(QEvent::MouseButtonRelease, QPointF(5, 5), notifLabel->mapToGlobal(QPoint(5, 5)),
+                                     Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(notifLabel, &rightRelease);
+            assert(clickedSpy.count() == 0);
+
+            // Left click accepts press/release/double-click events cleanly (SWIPE_02), copies payload, flashes confirmation for 2000ms, and resets cooldown
+            QMouseEvent leftPress(QEvent::MouseButtonPress, QPointF(5, 5), notifLabel->mapToGlobal(QPoint(5, 5)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(notifLabel, &leftPress);
+            assert(leftPress.isAccepted() == true);
+
+            QMouseEvent leftRelease(QEvent::MouseButtonRelease, QPointF(5, 5), notifLabel->mapToGlobal(QPoint(5, 5)),
+                                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(notifLabel, &leftRelease);
+            assert(leftRelease.isAccepted() == true);
+
+            QMouseEvent leftDblClick(QEvent::MouseButtonDblClick, QPointF(5, 5), notifLabel->mapToGlobal(QPoint(5, 5)),
+                                     Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(notifLabel, &leftDblClick);
+            assert(leftDblClick.isAccepted() == true);
+
+            assert(clickedSpy.count() == 1);
+            assert(QApplication::clipboard()->text() == QStringLiteral("brew upgrade markd"));
+            assert(notifLabel->isVisible() == true);
+            assert(notifLabel->text() == QStringLiteral("✓ Copied 'brew upgrade markd' to clipboard"));
+            assert(notifLabel->property("level").toString() == QStringLiteral("info"));
+            assert(win.statusBar()->notificationTimer()->isActive() == true);
+            assert(win.statusBar()->notificationTimer()->interval() == 2000);
+            assert(defaultSettings.value(QStringLiteral("updates/runsSinceLastNudge")).toInt() == 0);
+            assert(defaultSettings.value(QStringLiteral("updates/lastNudgedVersion")).toString() == QStringLiteral("0.2.0"));
+            assert(defaultSettings.value(QStringLiteral("updates/dismissedVersion")).toString() == QStringLiteral("0.2.0"));
+
+            // Standalone binary fallback payload uses canonical https://markd.aramudan.dev (SWIPE_12)
+            UpdateInfo standaloneInfo;
+            standaloneInfo.state = UpdateState::UpdateAvailable;
+            standaloneInfo.latestVersion = QStringLiteral("0.2.0");
+            standaloneInfo.provenance = InstallationProvenance::StandaloneBinary;
+            assert(UpdateNudgePolicy::resolveCopyPayload(standaloneInfo) == QStringLiteral("https://markd.aramudan.dev"));
+            standaloneInfo.downloadUrl = QStringLiteral("https://markd.aramudan.dev");
+            assert(UpdateNudgePolicy::resolveCopyPayload(standaloneInfo) == QStringLiteral("https://markd.aramudan.dev"));
+            UpdateNudgePolicy::recordDismissal(QString());
+        });
+
+        it("remains silent in status bar when background check fails offline, preserves prior update state, and coordinates manual checks", [&]() {
+            QSettings defaultSettings;
+            defaultSettings.remove(QStringLiteral("updates"));
+
+            MainWindow win;
+            win.show();
+            app.processEvents();
+
+            auto failTransport = std::make_shared<ScriptedUpdateTransport>();
+            failTransport->success = false;
+            failTransport->errorText = QStringLiteral("Network unreachable");
+            win.setUpdateTransport(failTransport);
+
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+
+            // AC 6 & SWIPE_06: No status bar notification and no modal/popup UpdateDialog on background check failure
+            assert(win.statusBar()->notificationLabel()->isVisible() == false);
+            assert(win.findChild<UpdateDialog*>() == nullptr);
+
+            // Open AboutDialog first, then run successful background check and verify live status update
+            QAction* aboutAction = win.findChild<QAction*>("action_about");
+            assert(aboutAction != nullptr);
+            aboutAction->trigger();
+            app.processEvents();
+
+            AboutDialog* aboutDlg = win.findChild<AboutDialog*>();
+            assert(aboutDlg != nullptr);
+            assert(aboutDlg->silentUpdateStatusText() == QStringLiteral("✓ Up to date"));
+
+            auto okTransport = std::make_shared<ScriptedUpdateTransport>();
+            okTransport->success = true;
+            okTransport->payload = QByteArrayLiteral("{\"version\": \"0.2.0\"}");
+            win.setUpdateTransport(okTransport);
+
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+
+            assert(aboutDlg->silentUpdateStatusText() == QStringLiteral("↑ Update v0.2.0 available"));
+            assert(win.lastUpdateInfo().state == UpdateState::UpdateAvailable);
+
+            // Subsequent offline failure preserves previously discovered UpdateAvailable state in AboutDialog and MainWindow
+            win.setUpdateTransport(failTransport);
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+            assert(aboutDlg->silentUpdateStatusText() == QStringLiteral("↑ Update v0.2.0 available"));
+            assert(win.lastUpdateInfo().state == UpdateState::UpdateAvailable);
+
+            aboutDlg->reject();
+            app.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            // Re-open AboutDialog and verify cached m_lastUpdateInfo populates inline status
+            aboutAction->trigger();
+            app.processEvents();
+            AboutDialog* reopenedAbout = win.findChild<AboutDialog*>();
+            assert(reopenedAbout != nullptr);
+            assert(reopenedAbout->silentUpdateStatusText() == QStringLiteral("↑ Update v0.2.0 available"));
+            reopenedAbout->reject();
+            app.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            // Interleaving manual Check for Updates while UpdateDialog is open suppresses background check
+            win.setUpdateTransport(okTransport);
+            QAction* checkAction = win.findChild<QAction*>("action_check_updates");
+            assert(checkAction != nullptr);
+            checkAction->trigger();
+            app.processEvents();
+            assert(win.startupUpdateTimer()->isActive() == false);
+            UpdateDialog* updateDlg = win.findChild<UpdateDialog*>();
+            assert(updateDlg != nullptr);
+            win.runBackgroundUpdateCheck();
+            app.processEvents();
+            updateDlg->reject();
+            app.processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+            defaultSettings.remove(QStringLiteral("updates"));
+        });
+
+        it("survives rapid in-flight network aborts, window teardown, and end-to-end localhost http update responses", [&]() {
+            QSettings defaultSettings;
+            defaultSettings.remove(QStringLiteral("updates"));
+
+            QTcpServer holdServer;
+            assert(holdServer.listen(QHostAddress::LocalHost, 0));
+            const QByteArray holdUrl = QStringLiteral("http://127.0.0.1:%1/api/v1/updates/check")
+                .arg(holdServer.serverPort()).toUtf8();
+            qputenv("MARKD_UPDATE_ENDPOINT", holdUrl);
+
+            // Reproduce rapid in-flight abort + immediate MainWindow/UpdateChecker teardown while QHttpThreadDelegate is active
+            for (int iter = 0; iter < 3; ++iter) {
+                MainWindow transientWin;
+                transientWin.runBackgroundUpdateCheck();
+                app.processEvents();
+                transientWin.runBackgroundUpdateCheck();
+                app.processEvents();
+            }
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            app.processEvents();
+            holdServer.close();
+
+            // End-to-end HTTP response through real NetworkUpdateTransport into MainWindow status bar nudge
+            QTcpServer httpServer;
+            assert(httpServer.listen(QHostAddress::LocalHost, 0));
+            QObject::connect(&httpServer, &QTcpServer::newConnection, &httpServer, [&]() {
+                while (QTcpSocket* client = httpServer.nextPendingConnection()) {
+                    QObject::connect(client, &QTcpSocket::readyRead, client, [client]() {
+                        client->readAll();
+                        const QByteArray body("{\"version\":\"0.2.0\"}");
+                        const QByteArray response =
+                            "HTTP/1.1 200 OK\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+                            "Connection: close\r\n\r\n" + body;
+                        client->write(response);
+                        client->flush();
+                        client->disconnectFromHost();
+                    });
+                }
+            });
+
+            const QByteArray liveUrl = QStringLiteral("http://127.0.0.1:%1/api/v1/updates/check")
+                .arg(httpServer.serverPort()).toUtf8();
+            qputenv("MARKD_UPDATE_ENDPOINT", liveUrl);
+            qputenv("MARKD_APP_PATH", "/opt/homebrew/bin/markd");
+
+            MainWindow liveWin;
+            liveWin.show();
+            liveWin.runBackgroundUpdateCheck();
+
+            for (int tick = 0; tick < 40 && !liveWin.statusBar()->notificationLabel()->isVisible(); ++tick) {
+                QTest::qWait(25);
+                app.processEvents();
+            }
+
+            assert(liveWin.statusBar()->notificationLabel()->isVisible() == true);
+            assert(liveWin.statusBar()->notificationLabel()->text() ==
+                   QStringLiteral("↑ Update v0.2.0 available · Click to copy 'brew upgrade markd'"));
+
+            // Trigger an immediate follow-up check before DeferredDelete runs on the completed QNetworkReply
+            liveWin.runBackgroundUpdateCheck();
+            app.processEvents();
+
+            // Verify remaining edge branches in UpdateNudgePolicy, SilentAutoUpdater, and UpdateDialog
+            assert(UpdateNudgePolicy::normalizeVersion(QStringLiteral("invalid version tokens")).isEmpty());
+            UpdateInfo upToDateInfo;
+            upToDateInfo.state = UpdateState::UpToDate;
+            assert(UpdateNudgePolicy::formatAboutStatus(upToDateInfo) == QStringLiteral("✓ Up to date"));
+
+            SilentAutoUpdater updaterInstance;
+            QTemporaryDir writableDir;
+            assert(writableDir.isValid());
+            const QString writableBin = writableDir.filePath(QStringLiteral("markd"));
+            assert(SilentAutoUpdater::determineUpdateMode(
+                QStringLiteral("/nonexistent_markd_root_dir/bin/markd"),
+                InstallationProvenance::StandaloneBinary) == SilentUpdateMode::ManualCommandRequired);
+            assert(SilentAutoUpdater::determineUpdateMode(
+                writableBin,
+                InstallationProvenance::Homebrew) == SilentUpdateMode::BackgroundPackageCommand);
+            assert(SilentAutoUpdater::stageAndApplyBinaryUpdate(
+                QString(), QByteArray(), QString(), QStringLiteral("0.2.0")).applied == false);
+            const QByteArray dummyBytes("payload");
+            const QString dummySha = SilentAutoUpdater::computeSha256Hex(dummyBytes);
+            assert(SilentAutoUpdater::stageAndApplyBinaryUpdate(
+                QStringLiteral("/nonexistent_markd_root_dir/bin/markd"),
+                dummyBytes, dummySha, QStringLiteral("0.2.0")).applied == false);
+            assert(SilentAutoUpdater::executePackageUpgrade(
+                InstallationProvenance::AptPackage, QStringLiteral("0.2.0")).mode == SilentUpdateMode::ManualCommandRequired);
+
+            UpdateDialog releaseDlg;
+            QMouseEvent releaseEvt(QEvent::MouseButtonRelease, QPointF(10, 10), QPointF(10, 10),
+                                   Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(&releaseDlg, &releaseEvt);
+
+            qunsetenv("MARKD_APP_PATH");
+            qunsetenv("MARKD_UPDATE_ENDPOINT");
+            defaultSettings.remove(QStringLiteral("updates"));
+        });
+    });
 }
+
 
