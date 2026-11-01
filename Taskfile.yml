@@ -117,6 +117,27 @@ tasks:
     cmds:
       - rm -rf {{.BUILD_DIR}}
 
+  install-app:
+    desc: Package and install Markd.app to /Applications and register with macOS LaunchServices
+    deps: [package-macos]
+    cmds:
+      - |
+        LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+        for stale_app in \
+          "$HOME/.local/markd.app" \
+          "$HOME/.local/Cellar/markd/0.0.0/markd.app" \
+          "{{.ROOT_DIR}}/../../../lab/markd/build-publish/markd.app" \
+          "{{.ROOT_DIR}}/../build/Release/Markd.app"; do
+          if [[ -e "$stale_app" ]]; then
+            "$LSREGISTER" -u "$stale_app" 2>/dev/null || true
+          fi
+        done
+        rm -rf "$HOME/.local/markd.app" "$HOME/.local/Cellar/markd" "$HOME/.local/opt/markd"
+        rm -rf /Applications/Markd.app
+        cp -R "{{.BUILD_DIR}}/dist/Markd.app" /Applications/Markd.app
+        ln -s /Applications/Markd.app "$HOME/.local/markd.app"
+        "$LSREGISTER" -f /Applications/Markd.app
+
   install-cli:
     desc: Symlink/install markd executable wrapper to ~/.local/bin/markd
     deps: [build]

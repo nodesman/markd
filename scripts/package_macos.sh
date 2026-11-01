@@ -68,7 +68,7 @@ cat <<EOF > "$DIST_DIR/Markd.app/Contents/Info.plist"
     <key>CFBundleIconFile</key>
     <string>markd.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.aramudan.markd</string>
+    <string>org.markd.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -93,12 +93,18 @@ cat <<EOF > "$DIST_DIR/Markd.app/Contents/Info.plist"
                 <string>mdown</string>
                 <string>mkd</string>
             </array>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>net.daringfireball.markdown</string>
+                <string>public.markdown</string>
+                <string>public.plain-text</string>
+            </array>
             <key>CFBundleTypeName</key>
             <string>Markdown Document</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSHandlerRank</key>
-            <string>Alternate</string>
+            <string>Owner</string>
         </dict>
     </array>
 </dict>
