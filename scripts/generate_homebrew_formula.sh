@@ -60,7 +60,7 @@ class Markd < Formula
   url "${URL}"
   version "${VERSION}"
   sha256 "${SHA256}"
-  license "MIT"
+  license "GPL-3.0-only"
 
   def install
     libexec.install "Markd.app"

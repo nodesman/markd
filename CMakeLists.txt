@@ -8,10 +8,14 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Default to local Qt 6.5.3 on macOS if not specified
+# Default to local Qt 6.5.3 or Homebrew Qt on macOS if not specified
 if(APPLE AND NOT DEFINED CMAKE_PREFIX_PATH)
-    if(EXISTS "/Users/rajsekharan/Qt/6.5.3/macos")
-        set(CMAKE_PREFIX_PATH "/Users/rajsekharan/Qt/6.5.3/macos")
+    if(DEFINED ENV{QT_DIR} AND EXISTS "$ENV{QT_DIR}")
+        set(CMAKE_PREFIX_PATH "$ENV{QT_DIR}")
+    elseif(EXISTS "$ENV{HOME}/Qt/6.5.3/macos")
+        set(CMAKE_PREFIX_PATH "$ENV{HOME}/Qt/6.5.3/macos")
+    elseif(EXISTS "/opt/homebrew/opt/qt")
+        set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt")
     endif()
 endif()
 

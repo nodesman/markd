@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QT_PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$QT_PROJECT_DIR/.." && pwd)"
 
-QT_DIR="${QT_DIR:-/Users/rajsekharan/Qt/6.5.3/macos}"
+QT_DIR="${QT_DIR:-$HOME/Qt/6.5.3/macos}"
 BUILD_DIR="${BUILD_DIR:-$QT_PROJECT_DIR/build}"
 DIST_DIR="${DIST_DIR:-$QT_PROJECT_DIR/build/dist}"
 VERSION=""
@@ -55,7 +55,9 @@ chmod 0755 "$APP_BUNDLE/Contents/MacOS/markd"
 cp "$BUILD_DIR/libmarkd_webengine.dylib" "$APP_BUNDLE/Contents/Frameworks/libmarkd_webengine.dylib"
 chmod 0755 "$APP_BUNDLE/Contents/Frameworks/libmarkd_webengine.dylib"
 
-if [[ -f "$REPO_ROOT/resources/branding/markd.icns" ]]; then
+if [[ -f "$QT_PROJECT_DIR/resources/branding/markd.icns" ]]; then
+    cp "$QT_PROJECT_DIR/resources/branding/markd.icns" "$APP_BUNDLE/Contents/Resources/markd.icns"
+elif [[ -f "$REPO_ROOT/resources/branding/markd.icns" ]]; then
     cp "$REPO_ROOT/resources/branding/markd.icns" "$APP_BUNDLE/Contents/Resources/markd.icns"
 fi
 

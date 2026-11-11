@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_BRANDING_DIR="$(cd "$SCRIPT_DIR/../../resources/branding" && pwd)"
+DEFAULT_BRANDING_DIR="$(cd "$SCRIPT_DIR/../resources/branding" && pwd)"
 
 SRC_PNG="${1:-$DEFAULT_BRANDING_DIR/app_icon.png}"
 OUT_DIR="${2:-$DEFAULT_BRANDING_DIR}"

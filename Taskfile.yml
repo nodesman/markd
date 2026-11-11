@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  QT_DIR: /Users/rajsekharan/Qt/6.5.3/macos
+  QT_DIR: '{{default (printf "%s/Qt/6.5.3/macos" (env "HOME")) (env "QT_DIR")}}'
   BUILD_DIR: build
 
 tasks:

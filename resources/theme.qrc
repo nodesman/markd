@@ -9,8 +9,8 @@
         <file>showcase.md</file>
     </qresource>
     <qresource prefix="/branding">
-        <file alias="app_icon.png">../../resources/branding/app_icon.png</file>
-        <file alias="app_icon_64.png">../../resources/branding/app_icon_64.png</file>
-        <file alias="markd_glyph_transparent.png">../../resources/branding/markd_glyph_transparent.png</file>
+        <file alias="app_icon.png">branding/app_icon.png</file>
+        <file alias="app_icon_64.png">branding/app_icon_64.png</file>
+        <file alias="markd_glyph_transparent.png">branding/markd_glyph_transparent.png</file>
     </qresource>
 </RCC>
