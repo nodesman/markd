@@ -8,7 +8,8 @@ const { JSDOM } = require('jsdom');
 /**
  * Creates a clean JSDOM window environment with vendor scripts and render.js evaluated.
  */
-function createRenderEnvironment() {
+function createRenderEnvironment(options = {}) {
+    const withMermaid = options.withMermaid !== false;
     const webDir = path.resolve(__dirname, '..');
     const obsidianCss = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
     const katexCss = fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.css'), 'utf8');
@@ -68,16 +69,18 @@ function createRenderEnvironment() {
     win.Element.prototype.scrollIntoView = () => {};
 
     // Mock Mermaid renderer to simulate SVG generation without browser canvas metrics
-    win.mermaid = {
-        initialize: () => {},
-        run: async ({ nodes }) => {
-            if (nodes) {
-                for (const node of nodes) {
-                    node.innerHTML = '<svg class="mermaid-svg"><text>Mock Diagram</text></svg>';
+    if (withMermaid) {
+        win.mermaid = {
+            initialize: () => {},
+            run: async ({ nodes }) => {
+                if (nodes) {
+                    for (const node of nodes) {
+                        node.innerHTML = '<svg class="mermaid-svg"><text>Mock Diagram</text></svg>';
+                    }
                 }
             }
-        }
-    };
+        };
+    }
 
     // Load vendor libraries and render.js in strict dependency order from web root
 
@@ -1945,6 +1948,169 @@ describe('render.js Native Node.js Test Suite', () => {
 
             assert.equal(env.doc.querySelector('#content .code-block-card'), null);
             assert.ok(env.doc.querySelector('#content .expandable-container .mermaid') !== null);
+        });
+    });
+
+    describe('Lazy Mermaid Bundle Injection & Theme Synchronization', () => {
+        it('renders prose math and highlighted code without injecting mermaid script tag', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            assert.equal(env.win.mermaid, undefined);
+
+            await env.win.renderMarkdown(
+                '# Fast Cold Start\n\nInline formula $a^2 + b^2 = c^2$ and code:\n\n```js\nconst x = 1;\n```\n'
+            );
+
+            assert.ok(env.doc.querySelector('#content h1[id="fast-cold-start"]') !== null);
+            assert.ok(env.doc.querySelector('#content .katex') !== null);
+            assert.ok(env.doc.querySelector('#content .code-block-card') !== null);
+            assert.equal(env.doc.head.querySelector('script[data-mermaid-lazy="1"]'), null);
+        });
+
+        it('caches mermaid theme preference before bundle load and applies theme on first diagram', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            env.win.setTheme('obsidian-dark');
+            assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'obsidian-dark');
+
+            env.win.setTheme('light');
+            assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'light');
+
+            let initializedConfig = null;
+            const origAppend = env.doc.head.appendChild.bind(env.doc.head);
+            env.doc.head.appendChild = (node) => {
+                const appended = origAppend(node);
+                if (node.tagName === 'SCRIPT' && node.getAttribute('data-mermaid-lazy') === '1') {
+                    env.win.mermaid = {
+                        initialize: (cfg) => { initializedConfig = cfg; },
+                        run: async ({ nodes }) => {
+                            for (const n of nodes) {
+                                n.innerHTML = '<svg class="lazy-svg"><text>Lazy</text></svg>';
+                            }
+                        }
+                    };
+                    node.onload();
+                }
+                return appended;
+            };
+
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nA-->B;\n```\n');
+            assert.ok(initializedConfig !== null);
+            assert.equal(initializedConfig.theme, 'default');
+            assert.ok(env.doc.querySelector('#content .lazy-svg') !== null);
+        });
+
+        it('injects mermaid script once on first diagram fence and reuses cached loader promise', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            let scriptCount = 0;
+            const origAppend = env.doc.head.appendChild.bind(env.doc.head);
+            env.doc.head.appendChild = (node) => {
+                const appended = origAppend(node);
+                if (node.tagName === 'SCRIPT' && node.getAttribute('data-mermaid-lazy') === '1') {
+                    scriptCount += 1;
+                    env.win.mermaid = {
+                        initialize: () => {},
+                        run: async ({ nodes }) => {
+                            for (const n of nodes) {
+                                n.innerHTML = '<svg class="cached-svg"><text>Cached</text></svg>';
+                            }
+                        }
+                    };
+                    node.onload();
+                }
+                return appended;
+            };
+
+            await env.win.renderMarkdown('```mermaid\ngraph LR;\nX-->Y;\n```\n');
+            const firstPromise = env.win.ensureMermaidLoaded();
+            const secondPromise = env.win.ensureMermaidLoaded();
+            await env.win.renderMarkdown('```mermaid\ngraph LR;\nY-->Z;\n```\n');
+
+            assert.equal(scriptCount, 1);
+            assert.equal(await firstPromise, await secondPromise);
+            assert.equal(env.doc.head.querySelectorAll('script[data-mermaid-lazy="1"]').length, 1);
+        });
+
+        it('coalesces concurrent diagram renders behind single script element injection', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            let pendingScriptNode = null;
+            let appendCalls = 0;
+            const origAppend = env.doc.head.appendChild.bind(env.doc.head);
+            env.doc.head.appendChild = (node) => {
+                const appended = origAppend(node);
+                if (node.tagName === 'SCRIPT' && node.getAttribute('data-mermaid-lazy') === '1') {
+                    appendCalls += 1;
+                    pendingScriptNode = node;
+                }
+                return appended;
+            };
+
+            const p1 = env.win.ensureMermaidLoaded();
+            const p2 = env.win.ensureMermaidLoaded();
+            assert.equal(p1, p2);
+            assert.equal(appendCalls, 1);
+            assert.ok(pendingScriptNode !== null);
+
+            env.win.mermaid = {
+                initialize: () => {},
+                run: async () => {}
+            };
+            pendingScriptNode.onload();
+            await Promise.all([p1, p2]);
+        });
+
+        it('resets loader promise renders error card and releases render mutex on script load failure', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            let failNextLoad = true;
+            const origAppend = env.doc.head.appendChild.bind(env.doc.head);
+            env.doc.head.appendChild = (node) => {
+                const appended = origAppend(node);
+                if (node.tagName === 'SCRIPT' && node.getAttribute('data-mermaid-lazy') === '1') {
+                    if (failNextLoad) {
+                        node.onerror();
+                    } else {
+                        env.win.mermaid = {
+                            initialize: () => {},
+                            run: async ({ nodes }) => {
+                                for (const n of nodes) {
+                                    n.innerHTML = '<svg class="recovered-svg"><text>Recovered</text></svg>';
+                                }
+                            }
+                        };
+                        node.onload();
+                    }
+                }
+                return appended;
+            };
+
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nFail-->Recover;\n```\n');
+            const errCard = env.doc.querySelector('#content .mermaid-error-card');
+            assert.ok(errCard !== null);
+            assert.ok(errCard.textContent.includes('Failed to load Mermaid bundle'));
+
+            failNextLoad = false;
+            await env.win.renderMarkdown('```mermaid\ngraph TD;\nRecover-->Success;\n```\n');
+            assert.ok(env.doc.querySelector('#content .recovered-svg') !== null);
+        });
+
+        it('renders mermaid syntax error card without blocking subsequent markdown updates', async () => {
+            const env = createRenderEnvironment({ withMermaid: false });
+            const origAppend = env.doc.head.appendChild.bind(env.doc.head);
+            env.doc.head.appendChild = (node) => {
+                const appended = origAppend(node);
+                if (node.tagName === 'SCRIPT' && node.getAttribute('data-mermaid-lazy') === '1') {
+                    env.win.mermaid = {
+                        initialize: () => {},
+                        run: async () => { throw new Error('Bad lexical token'); }
+                    };
+                    node.onload();
+                }
+                return appended;
+            };
+
+            await env.win.renderMarkdown('```mermaid\ninvalid_syntax\n```\n');
+            assert.ok(env.doc.querySelector('#content .mermaid-error-card') !== null);
+
+            await env.win.renderMarkdown('# Clean Prose Recovery\n\nMutex remains unlocked.');
+            assert.ok(env.doc.querySelector('#content h1[id="clean-prose-recovery"]') !== null);
         });
     });
 });

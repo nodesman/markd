@@ -52,7 +52,9 @@ if (version) {
     if (doc.artifacts && typeof doc.artifacts === 'object') {
         for (const key of Object.keys(doc.artifacts)) {
             if (doc.artifacts[key] && typeof doc.artifacts[key].url === 'string') {
-                doc.artifacts[key].url = doc.artifacts[key].url.replace(/\/releases\/v[^/]+\//, '/releases/v' + cleanVersion + '/');
+                doc.artifacts[key].url = doc.artifacts[key].url
+                    .replace(/\/releases\/v[^/]+\//, '/releases/v' + cleanVersion + '/')
+                    .replace(/\/Markd-[0-9]+\.[0-9]+\.[0-9]+-/, '/Markd-' + cleanVersion + '-');
             }
         }
     }

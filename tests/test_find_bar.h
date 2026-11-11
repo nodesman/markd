@@ -204,7 +204,7 @@ inline void testInPageFindBarOverlay(QApplication& app) {
             QTest::mouseClick(overlay->closeButton(), Qt::LeftButton);
             app.processEvents();
             assert(!overlay->isVisible());
-            assert(win.previewView()->webView()->hasFocus());
+            assert(win.previewView()->hasPreviewFocus());
         });
 
         it("synchronizes active search across mode switches and external disk reloads without losing scroll position", [&]() {

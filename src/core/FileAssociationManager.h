@@ -17,6 +17,7 @@ public:
 
     static QString formatDesktopEntry(const QString& binaryPath, const QString& iconPath);
     static QStringList formatWindowsRegistryCommands(const QString& binaryPath);
+    static QString resolveMacosAppBundlePath(const QString& binaryPath);
 
     bool registerAsDefault(const QString& binaryPath) const;
 

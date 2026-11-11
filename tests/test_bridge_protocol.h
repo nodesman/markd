@@ -418,7 +418,7 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
 
             assert(win.previewView() != nullptr);
             assert(win.previewView()->webView() != nullptr);
-            assert(win.previewView()->webView()->hasFocus());
+            assert(win.previewView()->hasPreviewFocus());
         });
 
         it("retains no-focus policy on segmented mode buttons", [&]() {
@@ -440,7 +440,7 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
             app.processEvents();
             assert(win.modeSwitcher()->currentMode() == ModeSwitcher::DocumentMode::Preview);
             assert(!previewBtn->hasFocus());
-            assert(win.previewView()->webView()->hasFocus());
+            assert(win.previewView()->hasPreviewFocus());
 
             QTest::mouseClick(editBtn, Qt::LeftButton);
             app.processEvents();

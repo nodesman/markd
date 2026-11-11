@@ -454,7 +454,6 @@ QLabel#aboutVersionLabel {
 QLabel#tamilInscriptionLabel {
     color: #8b949e;
     font-size: 12px;
-    font-family: "Noto Sans Tamil", "Tamil Sangam MN", "Tamil MN", "Nirmala UI", "Latha", "Lohit Tamil", sans-serif;
 }
 
 QLabel#aboutFooterLabel {
@@ -512,13 +511,11 @@ QWidget#updateCommandBox {
 
 QLabel#updatePromptLabel {
     color: #484f58;
-    font-family: "SF Mono", "Menlo", "Consolas", monospace;
     font-size: 12px;
 }
 
 QLabel#updateCommandLabel {
     color: #f0f6fc;
-    font-family: "SF Mono", "Menlo", "Consolas", monospace;
     font-size: 12px;
 }
 

@@ -66,6 +66,7 @@ QString TocParser::slugify(const QString& rawTitle, QMap<QString, int>& seenSlug
 
 std::vector<TocItem> TocParser::extractHeadings(const QString& markdown)
 {
+    ++s_extractCallCount;
     std::vector<TocItem> items;
     QMap<QString, int> seenSlugs;
 

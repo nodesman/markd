@@ -1,44 +1,145 @@
 #include "ui/PreviewView.h"
+#include "ui/InstantPreviewSurface.h"
+#include "ui/WebEngineBackend.h"
 #include "core/DocumentSession.h"
-#include <QVBoxLayout>
-#include <QWebEnginePage>
-#include <QWebEngineFindTextResult>
-#include <QJsonDocument>
-#include <QJsonArray>
-#include <QUrl>
-#include <QNativeGestureEvent>
-#include <QWheelEvent>
+#include <QApplication>
 #include <QChildEvent>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QLibrary>
+#include <QNativeGestureEvent>
+#include <QShowEvent>
+#include <QStackedLayout>
+#include <QTimer>
+#include <QUrl>
+#include <QWheelEvent>
+#include <QWindow>
+#include <algorithm>
 #include <cmath>
 
+namespace {
+
+#if !defined(MARKD_STATIC_WEBENGINE_BACKEND)
+QLibrary* loadWebEnginePlugin()
+{
+    static QLibrary* s_lib = nullptr;
+    if (s_lib && s_lib->isLoaded()) return s_lib;
+
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        QDir(appDir).filePath(QStringLiteral("libmarkd_webengine.dylib")),
+        QDir(appDir).filePath(QStringLiteral("../Frameworks/libmarkd_webengine.dylib")),
+        QDir(appDir).filePath(QStringLiteral("../libexec/Markd.app/Contents/Frameworks/libmarkd_webengine.dylib")),
+        QDir(appDir).filePath(QStringLiteral("markd_webengine.dll")),
+        QDir(appDir).filePath(QStringLiteral("libmarkd_webengine.so")),
+        QDir(appDir).filePath(QStringLiteral("../lib/libmarkd_webengine.so")),
+    };
+
+    for (const QString& path : candidates) {
+        if (!QFileInfo::exists(path)) continue;
+        auto* candidateLib = new QLibrary(path, QCoreApplication::instance());
+        if (candidateLib->load()) {
+            s_lib = candidateLib;
+            return s_lib;
+        }
+        delete candidateLib;
+    }
+
+    auto* fallbackLib = new QLibrary(QStringLiteral("markd_webengine"), QCoreApplication::instance());
+    if (fallbackLib->load()) {
+        s_lib = fallbackLib;
+        return s_lib;
+    }
+    delete fallbackLib;
+    return nullptr;
+}
+#endif
+
+CreateWebEngineBackendFn resolveBackendFactory()
+{
+#if defined(MARKD_STATIC_WEBENGINE_BACKEND)
+    return &markdCreateWebEngineBackend;
+#else
+    QLibrary* lib = loadWebEnginePlugin();
+    return lib ? reinterpret_cast<CreateWebEngineBackendFn>(lib->resolve("markdCreateWebEngineBackend")) : nullptr;
+#endif
+}
+
+SharedWebEngineProfileFn resolveProfileFactory()
+{
+#if defined(MARKD_STATIC_WEBENGINE_BACKEND)
+    return &markdSharedWebEngineProfile;
+#else
+    QLibrary* lib = loadWebEnginePlugin();
+    return lib ? reinterpret_cast<SharedWebEngineProfileFn>(lib->resolve("markdSharedWebEngineProfile")) : nullptr;
+#endif
+}
+
+} // namespace
+
 PreviewView::PreviewView(QWidget* parent)
+    : PreviewView(nullptr, parent)
+{
+}
+
+PreviewView::PreviewView(DocumentSession* session, QWidget* parent)
     : QWidget(parent)
 {
-    setObjectName("previewContainer");
+    setObjectName(QStringLiteral("previewContainer"));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(0, 0);
 
-    QVBoxLayout* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    m_stackLayout = new QStackedLayout(this);
+    m_stackLayout->setContentsMargins(0, 0, 0, 0);
+    m_stackLayout->setStackingMode(QStackedLayout::StackAll);
 
-    m_webView = new QWebEngineView(this);
-    m_webView->setObjectName("previewView");
-    m_webView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_webView->setMinimumSize(0, 0);
+    m_instantSurface = new InstantPreviewSurface(this);
+    m_stackLayout->addWidget(m_instantSurface);
 
-    // Invariant: White-Flash Compositor Pre-Clear (#050505)
-    m_webView->page()->setBackgroundColor(QColor("#050505"));
-
-    // IPC Architecture Bridge Pre-wiring
     m_bridge = new WebBridge(this);
-    m_session = new DocumentSession(this);
-
     m_channel = new QWebChannel(this);
     m_channel->registerObject(QStringLiteral("markdBridge"), m_bridge);
-    m_channel->registerObject(QStringLiteral("session"), m_session);
-    m_webView->page()->setWebChannel(m_channel);
 
+    m_session = session ? session : new DocumentSession(this);
+    m_channel->registerObject(QStringLiteral("session"), m_session);
+    bindSessionSignals();
+    wireBridgeSignals();
+
+    installEventFilter(this);
+    m_instantSurface->installEventFilter(this);
+    if (m_instantSurface->viewport()) {
+        m_instantSurface->viewport()->installEventFilter(this);
+    }
+
+    if (!m_session->markdown().isEmpty()) {
+        setMarkdown(m_session->markdown());
+    }
+}
+
+PreviewView::~PreviewView()
+{
+    delete m_backend;
+    m_backend = nullptr;
+}
+
+QWebEngineProfile* PreviewView::sharedPreviewProfile()
+{
+    SharedWebEngineProfileFn fn = resolveProfileFactory();
+    return fn ? fn() : nullptr;
+}
+
+QWebEngineView* PreviewView::webView() const
+{
+    const_cast<PreviewView*>(this)->ensureWebEngineInitialized();
+    return m_backend ? m_backend->rawWebView() : nullptr;
+}
+
+void PreviewView::wireBridgeSignals()
+{
     connect(m_bridge, &WebBridge::bridgeInitialized, this, [this]() {
         m_bridgeReady = true;
         emit bridgeInitialized();
@@ -46,8 +147,8 @@ PreviewView::PreviewView(QWidget* parent)
             emit m_bridge->setTheme(m_session->theme());
         }
         if (!m_pendingMarkdown.isEmpty()) {
-            QString md = m_pendingMarkdown;
-            QJsonObject opts = m_pendingOptions;
+            const QString md = m_pendingMarkdown;
+            const QJsonObject opts = m_pendingOptions;
             m_pendingMarkdown.clear();
             m_pendingOptions = QJsonObject();
             setMarkdown(md, opts);
@@ -75,47 +176,164 @@ PreviewView::PreviewView(QWidget* parent)
     });
     connect(m_bridge, &WebBridge::documentRendered, this, [this](int headingCount) {
         m_renderedMarkdown = m_currentMarkdown;
+        completeInstantSurfaceSwap();
         emit documentRendered(headingCount);
     });
+}
 
+void PreviewView::bindSessionSignals()
+{
+    if (!m_session) return;
     connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
     connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
         if (m_currentActiveHeading == id) return;
         m_currentActiveHeading = id;
         emit activeHeadingChanged(id);
     });
+    connect(m_session, &DocumentSession::themeChanged, this, &PreviewView::setTheme);
+}
 
-    // Native hardware-accelerated Chromium search result notification
-    connect(m_webView->page(), &QWebEnginePage::findTextFinished, this, [this](const QWebEngineFindTextResult& result) {
-        emit findResult(result.activeMatch(), result.numberOfMatches());
+void PreviewView::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    schedulePostShowHydration();
+}
+
+void PreviewView::schedulePostShowHydration()
+{
+    if (m_backend || m_hydrationScheduled) return;
+    if (qEnvironmentVariableIntValue("MARKD_STARTUP_BENCHMARK") == 1) return;
+    m_hydrationScheduled = true;
+
+    if (QGuiApplication::platformName() == QLatin1String("cocoa")) {
+        pollCocoaExposeThenHydrate(16);
+        return;
+    }
+    QTimer::singleShot(0, this, &PreviewView::ensureWebEngineInitialized);
+}
+
+void PreviewView::pollCocoaExposeThenHydrate(int remainingTicks)
+{
+    if (m_backend) return;
+    QWidget* top = window();
+    QWindow* handle = top ? top->windowHandle() : nullptr;
+    if ((handle && handle->isExposed()) || remainingTicks <= 0) {
+        QTimer::singleShot(0, this, &PreviewView::ensureWebEngineInitialized);
+        return;
+    }
+    QTimer::singleShot(12, this, [this, remainingTicks]() {
+        pollCocoaExposeThenHydrate(remainingTicks - 1);
     });
+}
 
-    // Native asynchronous PDF print completion notification
-    connect(m_webView->page(), &QWebEnginePage::pdfPrintingFinished, this, &PreviewView::pdfPrintingFinished);
+void PreviewView::ensureWebEngineInitialized()
+{
+    if (m_backend) return;
+    CreateWebEngineBackendFn factory = resolveBackendFactory();
+    if (!factory) return;
 
-    connect(m_webView, &QWebEngineView::loadFinished, this, [this](bool ok) {
+    m_backend = factory(m_channel, this);
+    if (!m_backend) return;
+
+    m_backend->applyZoom(m_zoomFactor);
+    connect(m_backend, &WebEngineBackend::searchMatchReady, this, &PreviewView::findResult);
+    connect(m_backend, &WebEngineBackend::pdfExportCompleted, this, &PreviewView::pdfPrintingFinished);
+    connect(m_backend, &WebEngineBackend::pageLoadFinished, this, [this](bool ok) {
         m_pageLoaded = ok;
-        if (!ok) {
-            m_bridgeReady = false;
-        }
+        if (!ok) m_bridgeReady = false;
         installWebViewEventFilters();
     });
 
-    layout->addWidget(m_webView);
+    if (QWidget* view = m_backend->viewWidget()) {
+        m_stackLayout->addWidget(view);
+    }
+    if (m_showingInstantSurface && m_instantSurface) {
+        m_instantSurface->raise();
+    }
     installWebViewEventFilters();
+    m_backend->openUrl(QUrl(QStringLiteral("qrc:/web/template.html")));
+}
 
-    loadTemplate();
+void PreviewView::completeInstantSurfaceSwap()
+{
+    if (!m_showingInstantSurface) return;
+    const double ratio = m_instantSurface ? m_instantSurface->verticalScrollRatio() : 0.0;
+    const bool restoreFocus = m_instantSurface && m_instantSurface->hasFocus();
+
+    m_showingInstantSurface = false;
+    if (m_instantSurface) {
+        m_instantSurface->hide();
+    }
+    if (m_backend) {
+        m_backend->applyZoom(m_zoomFactor);
+    }
+    if (!m_pendingHeadingId.isEmpty() && m_bridgeReady) {
+        const QString target = m_pendingHeadingId;
+        m_pendingHeadingId.clear();
+        emit m_bridge->navigateToHeading(target);
+    }
+    if (m_pendingHeadingId.isEmpty() && ratio > 0.0 && m_bridgeReady) {
+        emit m_bridge->scrollToRatio(ratio);
+    }
+    if (!m_lastFindText.isEmpty() && m_backend) {
+        m_backend->searchInPage(m_lastFindText, true, m_lastFindCaseSensitive);
+    }
+    if (restoreFocus && m_backend && m_backend->viewWidget()) {
+        m_backend->viewWidget()->setFocus(Qt::OtherFocusReason);
+    }
+}
+
+void PreviewView::focusPreviewSurface()
+{
+    if (!m_showingInstantSurface && m_backend && m_backend->viewWidget()) {
+        m_backend->viewWidget()->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+    if (m_instantSurface) {
+        m_instantSurface->setFocus(Qt::OtherFocusReason);
+    }
+}
+
+bool PreviewView::hasPreviewFocus() const
+{
+    if (m_instantSurface && m_instantSurface->hasFocus()) return true;
+    if (m_backend && m_backend->holdsViewportFocus()) return true;
+    QWidget* focused = QApplication::focusWidget();
+    return focused && isAncestorOf(focused);
+}
+
+void PreviewView::copySelection()
+{
+    if (!m_showingInstantSurface && m_backend) {
+        m_backend->copySelectedContent();
+        return;
+    }
+    if (m_instantSurface) {
+        m_instantSurface->copySelection();
+    }
+}
+
+void PreviewView::selectAllContent()
+{
+    if (!m_showingInstantSurface && m_backend) {
+        m_backend->selectAllPageContent();
+        return;
+    }
+    if (m_instantSurface) {
+        m_instantSurface->selectAllContent();
+    }
 }
 
 void PreviewView::installWebViewEventFilters()
 {
     installEventFilter(this);
-    if (!m_webView) return;
-    m_webView->installEventFilter(this);
-    if (QWidget* proxy = m_webView->focusProxy()) {
+    QWidget* view = m_backend ? m_backend->viewWidget() : nullptr;
+    if (!view) return;
+    view->installEventFilter(this);
+    if (QWidget* proxy = view->focusProxy()) {
         proxy->installEventFilter(this);
     }
-    const QList<QObject*> children = m_webView->findChildren<QObject*>();
+    const QList<QObject*> children = view->findChildren<QObject*>();
     for (QObject* child : children) {
         child->installEventFilter(this);
     }
@@ -156,12 +374,15 @@ bool PreviewView::eventFilter(QObject* watched, QEvent* event)
 
 void PreviewView::loadTemplate()
 {
+    ensureWebEngineInitialized();
     m_bridgeReady = false;
     m_pageLoaded = false;
     m_currentMarkdown.clear();
     m_renderedMarkdown.clear();
     m_currentActiveHeading.clear();
-    m_webView->setUrl(QUrl("qrc:/web/template.html"));
+    if (m_backend) {
+        m_backend->openUrl(QUrl(QStringLiteral("qrc:/web/template.html")));
+    }
 }
 
 void PreviewView::setSession(DocumentSession* session)
@@ -179,13 +400,7 @@ void PreviewView::setSession(DocumentSession* session)
     m_session = session;
     if (m_channel && m_session) {
         m_channel->registerObject(QStringLiteral("session"), m_session);
-        connect(m_session, &DocumentSession::tocUpdated, this, &PreviewView::tocUpdated);
-        connect(m_session, &DocumentSession::activeHeadingChanged, this, [this](const QString& id) {
-            if (m_currentActiveHeading == id) return;
-            m_currentActiveHeading = id;
-            emit activeHeadingChanged(id);
-        });
-        connect(m_session, &DocumentSession::themeChanged, this, &PreviewView::setTheme);
+        bindSessionSignals();
         if (!m_session->markdown().isEmpty()) {
             setMarkdown(m_session->markdown());
         }
@@ -208,32 +423,33 @@ void PreviewView::setMarkdown(const QString& markdown, bool preserveScroll)
 
 void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& options)
 {
+    if (m_showingInstantSurface && m_instantSurface && m_lastInstantMarkdown != markdown) {
+        m_lastInstantMarkdown = markdown;
+        m_instantSurface->renderMarkdown(markdown, m_session ? m_session->filePath() : QString());
+    }
     if (m_bridgeReady && m_currentMarkdown == markdown && options.isEmpty()) {
         return;
     }
-
     if (m_session && m_session->markdown() != markdown) {
         m_session->setMarkdown(markdown);
     }
-
     if (m_renderedMarkdown != markdown) {
         m_renderedMarkdown.clear();
     }
-
     if (!m_bridgeReady) {
         m_pendingMarkdown = markdown;
         m_pendingOptions = options;
         return;
     }
-
     m_currentMarkdown = markdown;
-
-    // Pure typed domain semantic action dispatch (zero DOM leakage, zero runJavaScript)
     emit m_bridge->renderDocument(markdown, options);
 }
 
 void PreviewView::scrollToRatio(qreal ratio)
 {
+    if (m_showingInstantSurface && m_instantSurface) {
+        m_instantSurface->setVerticalScrollRatio(static_cast<double>(ratio));
+    }
     if (m_bridgeReady) {
         emit m_bridge->scrollToRatio(ratio);
     }
@@ -241,6 +457,10 @@ void PreviewView::scrollToRatio(qreal ratio)
 
 void PreviewView::scrollToHeading(const QString& id)
 {
+    if (m_showingInstantSurface && m_instantSurface) {
+        m_pendingHeadingId = id;
+        m_instantSurface->scrollToAnchorName(id);
+    }
     if (m_bridgeReady) {
         emit m_bridge->navigateToHeading(id);
     }
@@ -256,8 +476,11 @@ void PreviewView::setTheme(const QString& themeName)
 void PreviewView::setZoomFactor(qreal factor)
 {
     m_zoomFactor = std::clamp(factor, 0.25, 3.0);
-    if (m_webView) {
-        m_webView->setZoomFactor(m_zoomFactor);
+    if (m_instantSurface) {
+        m_instantSurface->applyZoomFactor(m_zoomFactor);
+    }
+    if (m_backend) {
+        m_backend->applyZoom(m_zoomFactor);
     }
 }
 
@@ -265,22 +488,20 @@ void PreviewView::findText(const QString& text, bool forward, bool caseSensitive
 {
     m_lastFindText = text;
     m_lastFindCaseSensitive = caseSensitive;
-    if (!m_webView) return;
 
     if (text.isEmpty()) {
         clearFind();
         return;
     }
-
-    QWebEnginePage::FindFlags flags;
-    if (!forward) {
-        flags |= QWebEnginePage::FindBackward;
+    if (m_showingInstantSurface && m_instantSurface && !m_backend) {
+        const bool found = m_instantSurface->findString(text, !forward, caseSensitive);
+        const int total = found ? m_instantSurface->countOccurrences(text, caseSensitive) : 0;
+        emit findResult(found ? 1 : 0, total);
+        return;
     }
-    if (caseSensitive) {
-        flags |= QWebEnginePage::FindCaseSensitively;
+    if (m_backend) {
+        m_backend->searchInPage(text, forward, caseSensitive);
     }
-
-    m_webView->findText(text, flags);
 }
 
 void PreviewView::findNext()
@@ -300,24 +521,29 @@ void PreviewView::findPrevious()
 void PreviewView::clearFind()
 {
     m_lastFindText.clear();
-    if (m_webView) {
-        m_webView->findText(QString());
+    if (m_instantSurface) {
+        m_instantSurface->findString(QString());
+    }
+    if (m_backend) {
+        m_backend->clearSearchHighlights();
     }
     emit findResult(0, 0);
 }
 
 void PreviewView::printToPdf(const QString& filePath, const QPageLayout& layout)
 {
-    if (m_webView && m_webView->page()) {
-        m_webView->page()->printToPdf(filePath, layout);
+    ensureWebEngineInitialized();
+    if (m_backend) {
+        m_backend->renderPdfDocument(filePath, layout);
     }
 }
 
 void PreviewView::toHtml(const std::function<void(const QString&)>& callback)
 {
     if (!callback) return;
-    if (m_webView && m_webView->page()) {
-        m_webView->page()->toHtml(callback);
+    ensureWebEngineInitialized();
+    if (m_backend) {
+        m_backend->exportHtmlContent(callback);
         return;
     }
     callback(QString());

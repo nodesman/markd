@@ -275,25 +275,60 @@ if (window.texmath) {
     });
 }
 
-// Initialize Mermaid
-const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-mermaid.initialize({
-    startOnLoad: false,
-    theme: isDark ? 'dark' : 'default',
-    securityLevel: 'strict',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
-});
+// Lazy Mermaid configuration & on-demand bundle loader
+var activeMermaidTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
+var mermaidLoadPromise = null;
+
+function applyMermaidConfig() {
+    window.mermaid.initialize({
+        startOnLoad: false,
+        theme: activeMermaidTheme,
+        securityLevel: 'strict',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
+    });
+}
+
+if (typeof window.mermaid !== 'undefined') {
+    applyMermaidConfig();
+}
+
+function ensureMermaidLoaded() {
+    if (typeof window.mermaid !== 'undefined') {
+        return Promise.resolve(window.mermaid);
+    }
+    if (mermaidLoadPromise) {
+        return mermaidLoadPromise;
+    }
+    var pending = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'vendor/mermaid/mermaid.min.js';
+        script.setAttribute('data-mermaid-lazy', '1');
+        script.onload = function () {
+            applyMermaidConfig();
+            resolve(window.mermaid);
+        };
+        script.onerror = function () {
+            script.remove();
+            reject(new Error('Failed to load Mermaid bundle'));
+        };
+        document.head.appendChild(script);
+    }).catch(function (err) {
+        mermaidLoadPromise = null;
+        throw err;
+    });
+    mermaidLoadPromise = pending;
+    return pending;
+}
+window.ensureMermaidLoaded = ensureMermaidLoaded;
 
 function syncMermaidTheme(themeName) {
     if (!themeName) return;
     document.documentElement.setAttribute('data-theme', themeName);
     var isDarkTheme = themeName === 'dark' || themeName.indexOf('dark') !== -1;
-    mermaid.initialize({
-        startOnLoad: false,
-        theme: isDarkTheme ? 'dark' : 'default',
-        securityLevel: 'strict',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
-    });
+    activeMermaidTheme = isDarkTheme ? 'dark' : 'default';
+    if (typeof window.mermaid !== 'undefined') {
+        applyMermaidConfig();
+    }
     if (currentRenderedMarkdown) {
         renderMarkdown(currentRenderedMarkdown, { force: true });
     }
@@ -378,41 +413,10 @@ async function executeRenderMarkdown(markdownText, options) {
         pre.replaceWith(div);
     }
 
-    // 4. Render mermaid diagrams with per-diagram isolation
+    // 4. Render mermaid diagrams lazily with per-diagram isolation
     var mermaidDivs = contentEl.querySelectorAll('.mermaid');
-    for (var j = 0; j < mermaidDivs.length; j++) {
-        var mDiv = mermaidDivs[j];
-        if (!mDiv.isConnected) continue;
-        var rawDiagramCode = mDiv.dataset.rawCode;
-        try {
-            await mermaid.run({ nodes: [mDiv] });
-            if (!mDiv.isConnected) continue;
-
-            // Re-sanitize generated SVG through DOMPurify SVG profile
-            var svgEl = mDiv.querySelector('svg');
-            if (svgEl) {
-                var cleanSvg = DOMPurify.sanitize(svgEl.outerHTML, {
-                    USE_PROFILES: { svg: true, svgFilters: true },
-                    FORBID_TAGS: ['style']
-                });
-                mDiv.innerHTML = cleanSvg;
-            }
-        } catch (e) {
-            console.error('Mermaid render error:', e);
-            var errorCard = document.createElement('div');
-            errorCard.className = 'mermaid-error-card';
-            var badge = document.createElement('div');
-            badge.className = 'mermaid-error-badge';
-            badge.textContent = 'Mermaid Syntax Error: ' + (e && e.message ? e.message : 'Invalid diagram syntax');
-            var rawPre = document.createElement('pre');
-            rawPre.className = 'mermaid-raw-code hljs';
-            var rawCodeNode = document.createElement('code');
-            rawCodeNode.textContent = rawDiagramCode;
-            rawPre.appendChild(rawCodeNode);
-            errorCard.appendChild(badge);
-            errorCard.appendChild(rawPre);
-            mDiv.replaceWith(errorCard);
-        }
+    if (mermaidDivs.length > 0) {
+        await renderMermaidNodes(mermaidDivs);
     }
 
     // 5. Wrap mermaid diagrams in expandable containers with zoom/pan
@@ -432,6 +436,67 @@ async function executeRenderMarkdown(markdownText, options) {
 
     // Resolve post-render scroll position (Task 12 Bidirectional Bridge)
     resolvePostRenderScroll(options, prevScrollY);
+}
+
+function replaceWithMermaidErrorCard(mDiv, rawDiagramCode, err) {
+    console.error('Mermaid render error:', err);
+    var errorCard = document.createElement('div');
+    errorCard.className = 'mermaid-error-card';
+    var badge = document.createElement('div');
+    badge.className = 'mermaid-error-badge';
+    badge.textContent = 'Mermaid Syntax Error: ' + (err && err.message ? err.message : 'Invalid diagram syntax');
+    var rawPre = document.createElement('pre');
+    rawPre.className = 'mermaid-raw-code hljs';
+    var rawCodeNode = document.createElement('code');
+    rawCodeNode.textContent = rawDiagramCode;
+    rawPre.appendChild(rawCodeNode);
+    errorCard.appendChild(badge);
+    errorCard.appendChild(rawPre);
+    mDiv.replaceWith(errorCard);
+}
+
+async function renderSingleMermaidNode(mermaidApi, mDiv) {
+    var rawDiagramCode = mDiv.dataset.rawCode;
+    try {
+        await mermaidApi.run({ nodes: [mDiv] });
+        if (!mDiv.isConnected) return;
+        var svgEl = mDiv.querySelector('svg');
+        if (svgEl) {
+            mDiv.innerHTML = DOMPurify.sanitize(svgEl.outerHTML, {
+                USE_PROFILES: { svg: true, svgFilters: true },
+                FORBID_TAGS: ['style']
+            });
+        }
+    } catch (e) {
+        replaceWithMermaidErrorCard(mDiv, rawDiagramCode, e);
+    }
+}
+
+function replaceAllMermaidWithErrors(mermaidDivs, err) {
+    for (var k = 0; k < mermaidDivs.length; k++) {
+        replaceWithMermaidErrorCard(mermaidDivs[k], mermaidDivs[k].dataset.rawCode, err);
+    }
+}
+
+async function resolveMermaidApi(mermaidDivs) {
+    try {
+        return await ensureMermaidLoaded();
+    } catch (loadErr) {
+        replaceAllMermaidWithErrors(mermaidDivs, loadErr);
+        return null;
+    }
+}
+
+async function renderMermaidNodes(mermaidDivs) {
+    var mermaidApi = typeof window.mermaid !== 'undefined'
+        ? window.mermaid
+        : await resolveMermaidApi(mermaidDivs);
+    if (!mermaidApi) return;
+    for (var j = 0; j < mermaidDivs.length; j++) {
+        var mDiv = mermaidDivs[j];
+        if (!mDiv.isConnected) continue;
+        await renderSingleMermaidNode(mermaidApi, mDiv);
+    }
 }
 
 // ---- Scroll spy ----

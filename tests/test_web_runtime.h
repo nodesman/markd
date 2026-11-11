@@ -85,30 +85,29 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
             assert(!fullHtml.contains("qrc:/web/styles/style.css"));
         });
 
-        it("guarantees legacy aliases and canonical asset paths in virtual filesystem", [&]() {
-            assert(QFile::exists(":/web/css/obsidian.css"));
-            assert(QFile::exists(":/web/css/style.css"));
-            assert(QFile::exists(":/web/js/render.js"));
-            assert(QFile::exists(":/web/js/qwebchannel.js"));
-            assert(QFile::exists(":/web/js/katex.min.css"));
-            assert(QFile::exists(":/web/js/katex.min.js"));
-            assert(QFile::exists(":/web/js/highlight.min.js"));
-            assert(QFile::exists(":/web/js/github-dark.min.css"));
-            assert(QFile::exists(":/web/js/mermaid.min.js"));
-            assert(QFile::exists(":/web/js/purify.min.js"));
-            assert(QFile::exists(":/web/js/markdown-it.min.js"));
-            assert(QFile::exists(":/web/js/markdownItAnchor.umd.js"));
-            assert(QFile::exists(":/web/js/markdown-it-task-lists.min.js"));
-            assert(QFile::exists(":/web/js/texmath.min.js"));
-
+        it("guarantees canonical asset paths and excludes duplicate aliases in virtual filesystem", [&]() {
             assert(QFile::exists(":/web/styles/obsidian.css"));
             assert(QFileInfo(":/web/styles/obsidian.css").size() > 0);
             assert(QFile::exists(":/web/src/render.js"));
             assert(QFileInfo(":/web/src/render.js").size() > 0);
+            assert(QFile::exists(":/web/vendor/qt/qwebchannel.js"));
             assert(QFile::exists(":/web/vendor/katex/katex.min.css"));
             assert(QFileInfo(":/web/vendor/katex/katex.min.css").size() > 0);
+            assert(QFile::exists(":/web/vendor/katex/katex.min.js"));
             assert(QFile::exists(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2"));
             assert(QFileInfo(":/web/vendor/katex/fonts/KaTeX_Main-Regular.woff2").size() > 0);
+            assert(QFile::exists(":/web/vendor/highlight/highlight.min.js"));
+            assert(QFile::exists(":/web/vendor/highlight/github-dark.min.css"));
+            assert(QFile::exists(":/web/vendor/mermaid/mermaid.min.js"));
+            assert(QFile::exists(":/web/vendor/purify/purify.min.js"));
+            assert(QFile::exists(":/web/vendor/markdown-it/markdown-it.min.js"));
+            assert(QFile::exists(":/web/vendor/markdown-it/markdownItAnchor.umd.js"));
+            assert(QFile::exists(":/web/vendor/markdown-it/markdown-it-task-lists.min.js"));
+            assert(QFile::exists(":/web/vendor/markdown-it/texmath.min.js"));
+
+            assert(!QFile::exists(":/web/js/mermaid.min.js"));
+            assert(!QFile::exists(":/web/css/style.css"));
+            assert(!QFile::exists(":/web/styles/style.css"));
         });
 
         it("enforces 760px maximum reading width with 40px top canvas padding", [&]() {

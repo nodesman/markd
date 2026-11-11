@@ -2,6 +2,20 @@
 #include <cmath>
 #include <QLocale>
 
+namespace {
+uint64_t g_calculateCallCount = 0;
+}
+
+uint64_t TelemetryEngine::calculateCallCount()
+{
+    return g_calculateCallCount;
+}
+
+void TelemetryEngine::resetCalculateCallCount()
+{
+    g_calculateCallCount = 0;
+}
+
 QString TelemetryEngine::stripMarkdownSyntax(const QString& markdown) {
     QString text = markdown;
 
@@ -69,6 +83,7 @@ QString TelemetryEngine::readingVelocityText(int wordCount) {
 
 
 TelemetryMetrics TelemetryEngine::calculateMetrics(const QString& markdown) {
+    ++g_calculateCallCount;
     TelemetryMetrics metrics;
     metrics.characterCount = static_cast<int>(markdown.toUcs4().size());
 

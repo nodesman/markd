@@ -4,6 +4,7 @@
 #include <QString>
 #include <QTimer>
 #include <QFileSystemWatcher>
+#include <cstdint>
 #include <vector>
 #include "parser/TocItem.h"
 #include "parser/TocParser.h"
@@ -28,6 +29,9 @@ class DocumentSession : public QObject {
 public:
     explicit DocumentSession(QObject* parent = nullptr);
     ~DocumentSession() override = default;
+
+    static uint64_t allocationCount();
+    static void resetAllocationCount();
 
     // Property Getters
     QString markdown() const { return m_markdown; }
@@ -109,6 +113,9 @@ private:
     int m_wordCount = 0;
     int m_readingTimeMinutes = 0;
     TelemetryMetrics m_telemetryMetrics;
+    std::vector<TocItem> m_headings;
+    bool m_outlineClean = true;
+    bool m_telemetryClean = true;
 
     // Tracks last content loaded or written to disk to filter self-echoes
     QString m_lastKnownDiskContent;

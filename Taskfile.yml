@@ -15,20 +15,20 @@ tasks:
       - bash scripts/generate_icons.sh
 
   configure:
-    desc: Configure CMake build for Markd with Qt 6.5.3
+    desc: Configure Release CMake build for Markd with Qt 6.5.3
     run: once
     cmds:
-      - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake
+      - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DCMAKE_BUILD_TYPE=Release
 
   build:
-    desc: Compile Markd executable and test suite
+    desc: Compile optimized Markd executable and assertion-enabled test suite
     run: once
     deps: [configure]
     cmds:
       - cmake --build {{.BUILD_DIR}} -j8
 
   test-cpp:
-    desc: Run C++ test suite (pure C++, headless)
+    desc: Run C++ test suite (pure C++, headless, -UNDEBUG enforced)
     deps: [build]
     cmds:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
@@ -37,12 +37,14 @@ tasks:
     desc: Run JavaScript test suite with Node.js
     dir: web
     cmds:
+      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm test
 
   coverage-web:
     desc: Run JavaScript test suite with c8 and verify 100% branch and line coverage
     dir: web
     cmds:
+      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm run test:coverage
 
   coverage-cpp:
@@ -61,10 +63,51 @@ tasks:
       - task: coverage-cpp
 
   calisthenics:
-    desc: Run Object Calisthenics static analysis audit
+    desc: Enforce 100/100 strict Object Calisthenics on new modules and non-degrading ratchet across src and web/src
     cmds:
-      - node ../../../kernel/quality-gate/calisthenics_auditor.js src
-      - node ../../../kernel/quality-gate/calisthenics_auditor.js web/src
+      - |
+        node -e '
+          const { runAudit } = require("../../../kernel/quality-gate/calisthenics_auditor.js");
+          const strictTargets = [
+            "src/app/CommandLineOptions.h",
+            "src/app/CommandLineOptions.cpp",
+            "src/app/SingleInstanceCoordinator.h",
+            "src/app/SingleInstanceCoordinator.cpp",
+            "src/app/MarkdApplication.h",
+            "src/app/MarkdApplication.cpp",
+            "src/ui/InstantPreviewSurface.h",
+            "src/ui/InstantPreviewSurface.cpp",
+            "src/ui/WebEngineBackend.h",
+            "src/ui/WebEngineBackend.cpp"
+          ];
+          for (const target of strictTargets) {
+            runAudit(target, { strict: true, minScore: 100 });
+          }
+          const cpp = runAudit("src");
+          if (cpp.totalElse > 10 || cpp.totalDeepNesting > 198 || cpp.totalLargeFiles > 5) {
+            console.error("C++ Calisthenics ratchet regression:", cpp);
+            process.exit(1);
+          }
+          const web = runAudit("web/src");
+          if (web.totalElse > 6 || web.totalDeepNesting > 179 || web.totalLargeFiles > 1) {
+            console.error("Web Calisthenics ratchet regression:", web);
+            process.exit(1);
+          }
+        '
+
+  benchmark:
+    desc: Verify p95 startup latency budgets (--version <25ms, IPC <60ms, instant paint <120ms, prose hydration <450ms)
+    deps: [build]
+    cmds:
+      - bash scripts/benchmark_startup.sh
+
+  gate:
+    desc: Run full 4-tier quality gate (tests + coverage + strict Object Calisthenics + startup latency budgets)
+    cmds:
+      - task: test
+      - task: coverage
+      - task: calisthenics
+      - task: benchmark
 
   test:
     desc: Run both decoupled test suites (C++ and Web)
@@ -78,7 +121,7 @@ tasks:
       - task: test
 
   package-macos:
-    desc: Bundle Markd.app via macdeployqt, codesign, and generate .dmg, .tar.gz, and SHA256SUMS.txt
+    desc: Bundle Markd.app via macdeployqt, prune bloat, verify Mach-O & codesign, and generate .dmg, .tar.gz, and SHA256SUMS.txt
     run: once
     deps: [build]
     cmds:
@@ -91,12 +134,15 @@ tasks:
       - bash scripts/generate_homebrew_formula.sh --output ../../../lab/markd-website/homebrew/markd.rb
 
   update-manifest:
-    desc: Update lab/markd-website/api/v1/updates/check with packaged darwin-arm64 SHA-256
+    desc: Update lab/markd-website/api/v1/updates/check with packaged darwin-arm64 .tar.gz SHA-256
     deps: [package-macos]
     cmds:
       - |
-        BIN_SHA="$(shasum -a 256 {{.BUILD_DIR}}/dist/markd-darwin-arm64 | awk '{print $1}')"
-        bash scripts/update_manifest.sh --darwin-arm64-sha256 "$BIN_SHA"
+        VERSION="$(grep -E 'MARKD_VERSION_STR' src/core/Version.h | sed -E 's/.*"([^"]+)".*/\1/')"
+        TAR_SHA="$(shasum -a 256 "{{.BUILD_DIR}}/dist/Markd-${VERSION}-darwin-arm64.tar.gz" | awk '{print $1}')"
+        bash scripts/update_manifest.sh \
+          --darwin-arm64-sha256 "$TAR_SHA" \
+          --darwin-arm64-url "https://markd.aramudan.dev/releases/v${VERSION}/Markd-${VERSION}-darwin-arm64.tar.gz"
 
   release:
     desc: Run tests, package macOS release, generate Homebrew formula, and update edge manifest
@@ -139,25 +185,16 @@ tasks:
         "$LSREGISTER" -f /Applications/Markd.app
 
   install-cli:
-    desc: Symlink/install markd executable wrapper to ~/.local/bin/markd
-    deps: [build]
+    desc: Install hermetic Markd.app bundle into ~/.local/libexec/Markd.app and CLI launcher into ~/.local/bin/markd
+    deps: [package-macos]
     cmds:
-      - mkdir -p ~/.local/bin
+      - mkdir -p ~/.local/bin ~/.local/libexec
+      - rm -rf ~/.local/libexec/Markd.app
+      - cp -R "{{.BUILD_DIR}}/dist/Markd.app" ~/.local/libexec/Markd.app
       - |
         cat << 'EOF' > ~/.local/bin/markd
-        #!/usr/bin/env bash
-        set -euo pipefail
-        export QT_PREFIX="{{.QT_DIR}}"
-        export DYLD_FRAMEWORK_PATH="$QT_PREFIX/lib:${DYLD_FRAMEWORK_PATH:-}"
-        export DYLD_LIBRARY_PATH="$QT_PREFIX/lib:${DYLD_LIBRARY_PATH:-}"
-        export QT_PLUGIN_PATH="$QT_PREFIX/plugins"
-        export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PREFIX/plugins/platforms"
-        BINARY="{{.ROOT_DIR}}/build/markd"
-        if [[ ! -x "$BINARY" ]]; then
-          echo "Error: Markd binary not found at $BINARY. Run 'task build' first." >&2
-          exit 1
-        fi
-        exec "$BINARY" "$@"
+        #!/bin/sh
+        exec "$HOME/.local/libexec/Markd.app/Contents/MacOS/markd" "$@"
         EOF
-      - chmod +x ~/.local/bin/markd
+      - chmod 0755 ~/.local/bin/markd
       - ~/.local/bin/markd --version

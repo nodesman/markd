@@ -22,23 +22,25 @@
 #include <QSignalBlocker>
 #include <QKeyEvent>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QPointer>
 #include <algorithm>
 
 MainWindow::MainWindow(const QString& filePath, Mode initialMode, bool startCollapsed, QWidget* parent)
     : QMainWindow(parent)
+    , m_currentMode(initialMode)
 {
     setupUI();
-
-    if (!filePath.isEmpty()) {
-        loadFile(filePath);
-    }
 
     if (initialMode == ModeSwitcher::DocumentMode::Preview) {
         setMode(ModeSwitcher::DocumentMode::Preview);
     }
     if (startCollapsed) {
         setSidebarCollapsed(true);
+    }
+
+    if (!filePath.isEmpty()) {
+        loadFile(filePath);
     }
 
     updateWindowTitle();
@@ -138,14 +140,19 @@ void MainWindow::setupUI()
     m_viewportStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_viewportStack->setMinimumWidth(320); // Central reading pane minimum width constraint
 
+    // Initialize Headless DocumentSession Single Source of Truth
+    m_session = new DocumentSession(this);
+
     m_editor = new EditorView(this);
     m_editor->setObjectName("central_editor");
     m_editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_editor->setMinimumSize(0, 0);
-    m_editor->setFocus();
+    if (m_currentMode == ModeSwitcher::DocumentMode::Edit) {
+        m_editor->setFocus();
+    }
     m_viewportStack->addWidget(m_editor); // Index 0: Edit
 
-    m_previewView = new PreviewView(this);
+    m_previewView = new PreviewView(m_session, this);
     m_viewportStack->addWidget(m_previewView); // Index 1: Preview
 
     m_viewportStack->setCurrentIndex(0);
@@ -183,10 +190,6 @@ void MainWindow::setupUI()
         emit pdfPrintingFinished(filePath, success);
     });
 
-    // Initialize Headless DocumentSession Single Source of Truth
-    m_session = new DocumentSession(this);
-    m_previewView->setSession(m_session);
-
     // Initialize 24px Bottom Status Bar & Telemetry Engine (Task 11)
     m_statusBar = new StatusBarTelemetry(this);
     setStatusBar(m_statusBar);
@@ -223,8 +226,12 @@ void MainWindow::setupUI()
             m_isDiskReloading = false;
             return;
         }
-        if (m_editor && m_editor->toPlainText() != md) {
+        if (m_currentMode == ModeSwitcher::DocumentMode::Preview) {
+            m_editorBufferDirty = true;
+        }
+        if (m_currentMode != ModeSwitcher::DocumentMode::Preview && m_editor && m_editor->toPlainText() != md) {
             m_editor->setPlainText(md);
+            ++m_editorPlainTextSyncCount;
         }
         if (m_previewView && m_previewView->currentMarkdown() != md) {
             m_previewView->setMarkdown(md);
@@ -550,6 +557,7 @@ void MainWindow::onHeadingActivated(const QString& id)
         return;
     }
 
+    syncEditorBufferIfNeeded();
     int line = it->lineNumber;
     QTextDocument* doc = m_editor->document();
     QTextBlock block = doc->findBlockByLineNumber(line - 1);
@@ -581,6 +589,21 @@ QString MainWindow::currentFilePath() const
 QString MainWindow::documentBuffer() const
 {
     return m_session ? m_session->markdown() : QString();
+}
+
+EditorView* MainWindow::editor() const
+{
+    syncEditorBufferIfNeeded();
+    return m_editor;
+}
+
+void MainWindow::syncEditorBufferIfNeeded() const
+{
+    if (!m_editorBufferDirty || !m_editor || !m_session) return;
+    m_editorBufferDirty = false;
+    const QSignalBlocker blocker(m_editor);
+    m_editor->setPlainText(m_session->markdown());
+    ++m_editorPlainTextSyncCount;
 }
 
 void MainWindow::updateWindowTitle()
@@ -633,6 +656,7 @@ void MainWindow::onCloseWindow()
 
 void MainWindow::onToggleWordWrap()
 {
+    syncEditorBufferIfNeeded();
     if (m_editor->lineWrapMode() == QPlainTextEdit::NoWrap) {
         m_editor->setLineWrapMode(QPlainTextEdit::WidgetWidth);
         return;
@@ -672,8 +696,8 @@ void MainWindow::restoreActiveFocus()
         m_editor->setFocus(Qt::OtherFocusReason);
         return;
     }
-    if (m_previewView && m_previewView->webView()) {
-        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
+    if (m_previewView) {
+        m_previewView->focusPreviewSurface();
     }
 }
 
@@ -912,6 +936,7 @@ void MainWindow::onModeChanged(ModeSwitcher::DocumentMode mode)
 
 void MainWindow::switchToEditMode()
 {
+    syncEditorBufferIfNeeded();
     m_viewportStack->setCurrentIndex(0);
     if (!m_editor) return;
     activateWindow();
@@ -946,9 +971,7 @@ void MainWindow::switchToPreviewMode()
     m_viewportStack->setCurrentIndex(1);
     if (!m_previewView || !m_session) return;
     activateWindow();
-    if (m_previewView->webView()) {
-        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
-    }
+    m_previewView->focusPreviewSurface();
     syncEditorToPreview();
 }
 
@@ -980,7 +1003,7 @@ void MainWindow::syncEditorToPreview()
 
 QString MainWindow::determineTargetHeading() const
 {
-    if (!m_editor || !m_tocWidget) return QString();
+    if (m_editorBufferDirty || !m_editor || !m_tocWidget) return QString();
     int currentLine = m_editor->textCursor().blockNumber() + 1;
     const auto& headings = m_tocWidget->headings();
     QString targetId;
@@ -993,10 +1016,18 @@ QString MainWindow::determineTargetHeading() const
 
 qreal MainWindow::determineScrollRatio(const QString& targetHeadingId) const
 {
-    if (!targetHeadingId.isEmpty() || !m_editor) return 0.0;
+    if (m_editorBufferDirty || !targetHeadingId.isEmpty() || !m_editor) return 0.0;
     QScrollBar* bar = m_editor->verticalScrollBar();
     if (!bar || bar->maximum() <= 0) return 0.0;
     return static_cast<qreal>(bar->value()) / bar->maximum();
+}
+
+void MainWindow::showEvent(QShowEvent* event)
+{
+    QMainWindow::showEvent(event);
+    if (m_previewView) {
+        m_previewView->schedulePostShowHydration();
+    }
 }
 
 void MainWindow::changeEvent(QEvent* event)
@@ -1068,6 +1099,7 @@ void MainWindow::findText(const QString& text, bool forward, bool caseSensitive)
     }
 
     if (!m_editor) return;
+    syncEditorBufferIfNeeded();
     const QPair<int, int> counts = FindBarOverlay::executeEditorSearch(
         m_editor, text, forward, caseSensitive, isNewQuery, true);
     if (m_findBarOverlay) {
@@ -1146,8 +1178,8 @@ void MainWindow::closeFindBar()
     clearFind();
     activateWindow();
     const bool inPreview = m_modeSwitcher && m_modeSwitcher->currentMode() == ModeSwitcher::DocumentMode::Preview;
-    if (inPreview && m_previewView && m_previewView->webView()) {
-        m_previewView->webView()->setFocus(Qt::OtherFocusReason);
+    if (inPreview && m_previewView) {
+        m_previewView->focusPreviewSurface();
         return;
     }
     if (m_editor) {
@@ -1197,6 +1229,7 @@ void MainWindow::exportHtml(const QString& filePath, const std::function<void(bo
         if (callback) callback(false);
         return;
     }
+    m_previewView->ensureWebEngineInitialized();
     const QString currentMd = m_session ? m_session->markdown() : QString();
     const QString title = windowTitle();
     if (m_previewView->currentMarkdown() != currentMd) {
@@ -1238,6 +1271,7 @@ void MainWindow::copyHtmlToClipboard(const std::function<void(bool)>& callback)
 void MainWindow::copyEditorHtmlToClipboard()
 {
     if (!m_editor) return;
+    syncEditorBufferIfNeeded();
     QString sourceText = m_editor->textCursor().selectedText();
     if (sourceText.isEmpty()) {
         sourceText = m_editor->toPlainText();
@@ -1303,17 +1337,9 @@ void MainWindow::updateActionRouting(ModeSwitcher::DocumentMode mode)
         return;
     }
 
-    if (mode == ModeSwitcher::DocumentMode::Preview && m_previewView && m_previewView->webView()) {
-        connect(m_actions.copyAction, &QAction::triggered, this, [this]() {
-            if (m_previewView && m_previewView->webView()) {
-                m_previewView->webView()->triggerPageAction(QWebEnginePage::Copy);
-            }
-        });
-        connect(m_actions.selectAllAction, &QAction::triggered, this, [this]() {
-            if (m_previewView && m_previewView->webView()) {
-                m_previewView->webView()->triggerPageAction(QWebEnginePage::SelectAll);
-            }
-        });
+    if (mode == ModeSwitcher::DocumentMode::Preview && m_previewView) {
+        connect(m_actions.copyAction, &QAction::triggered, m_previewView, &PreviewView::copySelection);
+        connect(m_actions.selectAllAction, &QAction::triggered, m_previewView, &PreviewView::selectAllContent);
     }
 }
 

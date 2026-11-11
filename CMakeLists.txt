@@ -16,6 +16,10 @@ if(APPLE AND NOT DEFINED CMAKE_PREFIX_PATH)
 endif()
 
 option(ENABLE_COVERAGE "Enable Clang source-based code coverage" OFF)
+if(NOT CMAKE_BUILD_TYPE AND NOT ENABLE_COVERAGE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+endif()
+
 if(ENABLE_COVERAGE)
     message(STATUS "Enabling Clang source-based code coverage")
     add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
@@ -31,6 +35,8 @@ set(COMMON_SOURCES
     src/app/MarkdApplication.cpp
     src/app/CommandLineOptions.h
     src/app/CommandLineOptions.cpp
+    src/app/SingleInstanceCoordinator.h
+    src/app/SingleInstanceCoordinator.cpp
     src/core/Version.h
     src/core/FileAssociationManager.h
     src/core/FileAssociationManager.cpp
@@ -62,6 +68,9 @@ set(COMMON_SOURCES
     src/ui/TocItemDelegate.h
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
+    src/ui/InstantPreviewSurface.h
+    src/ui/InstantPreviewSurface.cpp
+    src/ui/WebEngineBackend.h
     src/ui/PreviewView.h
     src/ui/PreviewView.cpp
     src/ui/TocWidget.h
@@ -110,13 +119,26 @@ set(SOURCES
     ${COMMON_SOURCES}
 )
 
+add_library(markd_webengine SHARED
+    src/ui/WebEngineBackend.h
+    src/ui/WebEngineBackend.cpp
+)
+
+target_link_libraries(markd_webengine PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::WebEngineWidgets
+    Qt6::WebChannel
+)
+
 add_executable(markd ${SOURCES})
+add_dependencies(markd markd_webengine)
 
 target_link_libraries(markd PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::WebEngineWidgets
     Qt6::WebChannel
     Qt6::Network
 )
@@ -128,12 +150,35 @@ if(APPLE)
     )
 endif()
 
+if(NOT ENABLE_COVERAGE)
+    if(APPLE)
+        target_link_options(markd PRIVATE -Wl,-dead_strip)
+        target_link_options(markd_webengine PRIVATE -Wl,-dead_strip)
+    elseif(MSVC)
+        target_link_options(markd PRIVATE /OPT:REF /OPT:ICF)
+        target_link_options(markd_webengine PRIVATE /OPT:REF /OPT:ICF)
+    elseif(UNIX)
+        target_compile_options(markd PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(markd PRIVATE -Wl,--gc-sections)
+        target_compile_options(markd_webengine PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(markd_webengine PRIVATE -Wl,--gc-sections)
+    endif()
+endif()
+
 # Enable Testing
 enable_testing()
 
 add_executable(test_cli
     tests/test_cli.cpp
+    src/ui/WebEngineBackend.cpp
     ${COMMON_SOURCES}
+)
+
+target_compile_definitions(test_cli PRIVATE MARKD_STATIC_WEBENGINE_BACKEND)
+
+target_compile_options(test_cli PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/UNDEBUG>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-UNDEBUG>
 )
 
 target_link_libraries(test_cli PRIVATE

@@ -33,8 +33,7 @@ EditorView::EditorView(QWidget* parent)
 }
 
 void EditorView::configureTypography() {
-    QFont monoFont(QStringLiteral("SF Mono"));
-    monoFont.setStyleHint(QFont::Monospace);
+    QFont monoFont(QStringLiteral("Menlo"));
     monoFont.setFixedPitch(true);
     monoFont.setPointSize(13);
     setFont(monoFont);

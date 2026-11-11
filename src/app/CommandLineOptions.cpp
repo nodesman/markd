@@ -1,44 +1,57 @@
 #include "app/CommandLineOptions.h"
-#include <QFileInfo>
+#include "core/Version.h"
 
-CommandLineOptions CommandLineOptions::parse(const QStringList& arguments) {
+namespace {
+
+void applySingleArgument(const QString& arg, CommandLineOptions& options)
+{
+    if (arg == QLatin1String("-h") || arg == QLatin1String("--help")) {
+        options.showHelp = true;
+        return;
+    }
+    if (arg == QLatin1String("-v") || arg == QLatin1String("--version")) {
+        options.showVersion = true;
+        return;
+    }
+    if (arg.startsWith(QLatin1Char('-'))) {
+        options.errorMessage = QStringLiteral("Unknown option: %1").arg(arg);
+        options.parseSuccess = false;
+        return;
+    }
+    options.filePaths.append(arg);
+    if (!options.hasFile) {
+        options.filePath = arg;
+        options.hasFile = true;
+    }
+}
+
+} // namespace
+
+CommandLineOptions CommandLineOptions::parse(const QStringList& arguments)
+{
     CommandLineOptions options;
-
-    // arguments[0] is typically the binary path if passed from QCoreApplication::arguments(),
-    // but we handle both full argc/argv lists and raw option lists.
-    int startIndex = 1;
-    if (arguments.isEmpty()) {
-        return options;
-    }
-    // If the first argument starts with '-' or doesn't look like executable path, check if it's already stripped
-    // But standard QCoreApplication::arguments() has argv[0] at index 0.
-    // Let's inspect arguments:
     for (int i = 1; i < arguments.size(); ++i) {
-        const QString& arg = arguments.at(i);
-        if (arg == "-h" || arg == "--help") {
-            options.showHelp = true;
-        } else if (arg == "-v" || arg == "--version") {
-            options.showVersion = true;
-        } else if (arg.startsWith("-")) {
-            options.errorMessage = QString("Unknown option: %1").arg(arg);
-            options.parseSuccess = false;
-        } else {
-            if (!options.hasFile) {
-                options.filePath = arg;
-                options.hasFile = true;
-            } else {
-                // Secondary non-flag argument
-                options.errorMessage = QString("Unexpected positional argument: %1").arg(arg);
-                options.parseSuccess = false;
-            }
-        }
+        applySingleArgument(arguments.at(i), options);
     }
-
     return options;
 }
 
-QString CommandLineOptions::helpText(const QString& programName) {
-    return QString(
+CommandLineOptions CommandLineOptions::parseFromArgv(int argc, char* argv[])
+{
+    if (argc <= 0 || argv == nullptr) {
+        return CommandLineOptions();
+    }
+    QStringList arguments;
+    arguments.reserve(argc);
+    for (int i = 0; i < argc; ++i) {
+        arguments.append(QString::fromLocal8Bit(argv[i] ? argv[i] : ""));
+    }
+    return parse(arguments);
+}
+
+QString CommandLineOptions::helpText(const QString& programName)
+{
+    return QStringLiteral(
         "Usage: %1 [options] [file.md]\n\n"
         "Markd — High-performance, native Markdown viewer and editor.\n\n"
         "Arguments:\n"
@@ -49,8 +62,7 @@ QString CommandLineOptions::helpText(const QString& programName) {
     ).arg(programName);
 }
 
-#include "core/Version.h"
-
-QString CommandLineOptions::versionText() {
-    return QString("Markd version %1 (Qt 6 C++20)\n").arg(MARKD_VERSION_STR);
+QString CommandLineOptions::versionText()
+{
+    return QStringLiteral("Markd version %1 (Qt 6 C++20)\n").arg(QString::fromUtf8(MARKD_VERSION_STR));
 }

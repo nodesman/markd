@@ -14,14 +14,13 @@ inline void testOfflineAssetSelfContainment() {
     describe("Offline presentation asset self-containment", [&]() {
         it("guarantees compiled presentation engine assets in virtual filesystem", [&]() {
             assert(QFile::exists(":/web/template.html"));
-            assert(QFile::exists(":/web/css/obsidian.css"));
-            assert(QFile::exists(":/web/css/style.css"));
-            assert(QFile::exists(":/web/js/qwebchannel.js"));
-            assert(QFile::exists(":/web/js/katex.min.css"));
-            assert(QFile::exists(":/web/js/katex.min.js"));
-            assert(QFile::exists(":/web/js/highlight.min.js"));
-            assert(QFile::exists(":/web/js/markdown-it.min.js"));
-            assert(QFile::exists(":/web/js/render.js"));
+            assert(QFile::exists(":/web/styles/obsidian.css"));
+            assert(QFile::exists(":/web/vendor/qt/qwebchannel.js"));
+            assert(QFile::exists(":/web/vendor/katex/katex.min.css"));
+            assert(QFile::exists(":/web/vendor/katex/katex.min.js"));
+            assert(QFile::exists(":/web/vendor/highlight/highlight.min.js"));
+            assert(QFile::exists(":/web/vendor/markdown-it/markdown-it.min.js"));
+            assert(QFile::exists(":/web/src/render.js"));
         });
     });
 }

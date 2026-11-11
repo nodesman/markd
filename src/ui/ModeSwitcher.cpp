@@ -67,10 +67,12 @@ void ModeSwitcher::updateSegmentStyles()
     m_editBtn->setProperty("active", m_currentMode == DocumentMode::Edit);
     m_previewBtn->setProperty("active", m_currentMode == DocumentMode::Preview);
 
-    m_editBtn->style()->unpolish(m_editBtn);
-    m_editBtn->style()->polish(m_editBtn);
-    m_previewBtn->style()->unpolish(m_previewBtn);
-    m_previewBtn->style()->polish(m_previewBtn);
+    if (isVisible()) {
+        m_editBtn->style()->unpolish(m_editBtn);
+        m_editBtn->style()->polish(m_editBtn);
+        m_previewBtn->style()->unpolish(m_previewBtn);
+        m_previewBtn->style()->polish(m_previewBtn);
+    }
 
     QFont font = m_editBtn->font();
     font.setPixelSize(12);

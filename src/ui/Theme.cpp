@@ -1,11 +1,26 @@
 #include "ui/Theme.h"
 #include <QFile>
+#include <QFont>
 #include <QPalette>
 #include <QColor>
 #include <QDebug>
 
 void Theme::apply(QApplication& app)
 {
+#if defined(Q_OS_MACOS)
+    QFont::insertSubstitution(QStringLiteral("Sans Serif"), QStringLiteral("Helvetica Neue"));
+    QFont::insertSubstitution(QStringLiteral("sans-serif"), QStringLiteral("Helvetica Neue"));
+    QFont::insertSubstitution(QStringLiteral("Monospace"), QStringLiteral("Menlo"));
+    QFont::insertSubstitution(QStringLiteral("monospace"), QStringLiteral("Menlo"));
+    QFont::insertSubstitution(QStringLiteral("SF Mono"), QStringLiteral("Menlo"));
+    if (app.platformName() == QLatin1String("offscreen")) {
+        QFont defaultFont;
+        defaultFont.setFamilies({QStringLiteral("Helvetica Neue"), QStringLiteral("Apple Symbols")});
+        defaultFont.setPointSize(13);
+        app.setFont(defaultFont);
+    }
+#endif
+
     // Apply dark fallback palette
     QPalette palette = app.palette();
     palette.setColor(QPalette::Window, QColor("#050505"));
@@ -25,11 +40,11 @@ void Theme::apply(QApplication& app)
 
     // Apply global stylesheet
     QFile qssFile(":/theme/theme.qss");
-    if (qssFile.open(QFile::ReadOnly | QFile::Text)) {
-        QString styleSheet = QString::fromUtf8(qssFile.readAll());
-        app.setStyleSheet(styleSheet);
-        qssFile.close();
-    } else {
+    if (!qssFile.open(QFile::ReadOnly | QFile::Text)) {
         qWarning() << "Failed to load master theme stylesheet from :/theme/theme.qss";
+        return;
     }
+    const QString styleSheet = QString::fromUtf8(qssFile.readAll());
+    app.setStyleSheet(styleSheet);
+    qssFile.close();
 }

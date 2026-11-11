@@ -1,3 +1,7 @@
+#ifdef NDEBUG
+#error "test_cli requires assertions enabled (-UNDEBUG)"
+#endif
+
 #include "app/MarkdApplication.h"
 
 // Modular Domain Test Suites (Zero Task Numbers)
@@ -22,6 +26,7 @@
 #include "test_clipboard.h"
 #include "test_editor_view.h"
 #include "test_dialogs.h"
+#include "test_startup_performance.h"
 
 int main(int argc, char* argv[]) {
     // Run MarkdApplication in offscreen platform mode for headless automated test suite
@@ -50,6 +55,7 @@ int main(int argc, char* argv[]) {
     testClipboardProvider(app);
     testEditorViewAndThemeAcuity(app);
     testSovereignDialogTrilogy(app);
+    testStartupPerformanceAndHydration(app);
 
     return 0;
 }

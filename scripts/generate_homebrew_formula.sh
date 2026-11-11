@@ -50,7 +50,7 @@ if [[ -z "$SHA256" ]] || ! printf '%s' "$SHA256" | grep -Eq '^[0-9a-fA-F]{64}$';
 fi
 
 if [[ -z "$URL" ]]; then
-    URL="https://github.com/nodesman/markd/releases/download/v${VERSION}/${TAR_NAME}"
+    URL="https://github.com/nodesman/markd-releases/releases/download/v${VERSION}/${TAR_NAME}"
 fi
 
 FORMULA_CONTENT="$(cat <<EOF

@@ -62,11 +62,26 @@ inline void testCommandLineOptions() {
             assert(opts.errorMessage.contains("Unknown option"));
         });
 
-        it("rejects superfluous positional arguments", [&]() {
-            QStringList args = {"markd", "file1.md", "file2.md"};
+        it("captures multiple positional markdown document paths via parse and raw argv", [&]() {
+            QStringList args = {"markd", "file1.md", "file2.md", "file3.md"};
             CommandLineOptions opts = CommandLineOptions::parse(args);
-            assert(!opts.parseSuccess);
-            assert(opts.errorMessage.contains("Unexpected positional argument"));
+            assert(opts.parseSuccess);
+            assert(opts.hasFile);
+            assert(opts.filePath == "file1.md");
+            assert(opts.filePaths.size() == 3);
+            assert(opts.filePaths.at(0) == "file1.md");
+            assert(opts.filePaths.at(1) == "file2.md");
+            assert(opts.filePaths.at(2) == "file3.md");
+
+            char arg0[] = "markd";
+            char arg1[] = "alpha.md";
+            char arg2[] = "beta.md";
+            char* rawArgv[] = {arg0, arg1, arg2, nullptr};
+            CommandLineOptions rawOpts = CommandLineOptions::parseFromArgv(3, rawArgv);
+            assert(rawOpts.parseSuccess);
+            assert(rawOpts.hasFile);
+            assert(rawOpts.filePath == "alpha.md");
+            assert(rawOpts.filePaths == QStringList({"alpha.md", "beta.md"}));
         });
 
         it("handles completely empty argument lists without crash", [&]() {

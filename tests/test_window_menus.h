@@ -3,6 +3,7 @@
 #include <cassert>
 #include <iostream>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
@@ -156,6 +157,44 @@ inline void testWindowAndMenuIntegrity() {
             assert(makeDefaultAct != nullptr);
             makeDefaultAct->trigger();
             assert(win.statusBar()->notificationLabel()->text().contains("Markdown handler"));
+        });
+
+        it("resolves enclosing macos app bundle paths across direct bundle and libexec wrapper layouts", [&]() {
+            assert(FileAssociationManager::resolveMacosAppBundlePath(QString()).isEmpty());
+            assert(FileAssociationManager::resolveMacosAppBundlePath(QStringLiteral("   ")).isEmpty());
+
+            const QString directBin = QStringLiteral("/Applications/Markd.app/Contents/MacOS/markd");
+            assert(FileAssociationManager::resolveMacosAppBundlePath(directBin) ==
+                   QStringLiteral("/Applications/Markd.app"));
+
+            assert(FileAssociationManager::resolveMacosAppBundlePath(
+                       QStringLiteral("/Users/test/Applications/Markd.app")) ==
+                   QStringLiteral("/Users/test/Applications/Markd.app"));
+
+            QTemporaryDir tempRoot;
+            assert(tempRoot.isValid());
+            const QString binDir = tempRoot.filePath(QStringLiteral("bin"));
+            const QString bundleDir = tempRoot.filePath(QStringLiteral("libexec/Markd.app/Contents/MacOS"));
+            assert(QDir().mkpath(binDir));
+            assert(QDir().mkpath(bundleDir));
+
+            const QString wrapperPath = binDir + QStringLiteral("/markd");
+            QFile wrapperFile(wrapperPath);
+            assert(wrapperFile.open(QIODevice::WriteOnly | QIODevice::Text));
+            wrapperFile.write("#!/bin/sh\n");
+            wrapperFile.close();
+
+            const QString resolvedSibling = FileAssociationManager::resolveMacosAppBundlePath(wrapperPath);
+            assert(resolvedSibling.endsWith(QStringLiteral("/libexec/Markd.app")));
+
+            QTemporaryDir isolatedDir;
+            assert(isolatedDir.isValid());
+            const QString bareBin = isolatedDir.filePath(QStringLiteral("markd"));
+            QFile bareFile(bareBin);
+            assert(bareFile.open(QIODevice::WriteOnly));
+            bareFile.write("bin");
+            bareFile.close();
+            assert(FileAssociationManager::resolveMacosAppBundlePath(bareBin).isEmpty());
         });
 
         it("binds standard platform accelerators across menu items", [&]() {

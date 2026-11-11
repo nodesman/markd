@@ -1,23 +1,46 @@
 #pragma once
 
 #include <QWidget>
+#if defined(MARKD_STATIC_WEBENGINE_BACKEND)
 #include <QWebEngineView>
+#include <QWebEngineProfile>
+#endif
 #include <QWebChannel>
+#include <QPageLayout>
+#include <QPointer>
+#include <functional>
 #include "bridge/WebBridge.h"
 
-#include <QPageLayout>
-#include <functional>
-
 class DocumentSession;
+class InstantPreviewSurface;
+class QShowEvent;
+class QStackedLayout;
+class QWebEngineProfile;
+class QWebEngineView;
+class WebEngineBackend;
 
 class PreviewView : public QWidget {
     Q_OBJECT
 
 public:
+    explicit PreviewView(DocumentSession* session, QWidget* parent = nullptr);
     explicit PreviewView(QWidget* parent = nullptr);
-    ~PreviewView() override = default;
+    ~PreviewView() override;
 
-    QWebEngineView* webView() const { return m_webView; }
+    static QWebEngineProfile* sharedPreviewProfile();
+
+    QWebEngineView* webView() const;
+    InstantPreviewSurface* instantSurface() const { return m_instantSurface; }
+    bool isWebEngineInitialized() const { return m_backend != nullptr; }
+    bool isShowingInstantSurface() const { return m_showingInstantSurface; }
+
+    void schedulePostShowHydration();
+    void ensureWebEngineInitialized();
+    void focusPreviewSurface();
+    bool hasPreviewFocus() const;
+    void copySelection();
+    void selectAllContent();
+
     WebBridge* bridge() const { return m_bridge; }
     QWebChannel* channel() const { return m_channel; }
     DocumentSession* session() const { return m_session; }
@@ -56,17 +79,30 @@ signals:
     void pdfPrintingFinished(const QString& filePath, bool success);
     void zoomDeltaRequested(qreal delta);
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private:
+    void wireBridgeSignals();
+    void bindSessionSignals();
+    void completeInstantSurfaceSwap();
+    void pollCocoaExposeThenHydrate(int remainingTicks);
     void installWebViewEventFilters();
 
-    QWebEngineView* m_webView = nullptr;
+    QStackedLayout* m_stackLayout = nullptr;
+    InstantPreviewSurface* m_instantSurface = nullptr;
+    WebEngineBackend* m_backend = nullptr;
     WebBridge* m_bridge = nullptr;
     QWebChannel* m_channel = nullptr;
     DocumentSession* m_session = nullptr;
+    bool m_showingInstantSurface = true;
+    bool m_hydrationScheduled = false;
     bool m_pageLoaded = false;
     bool m_bridgeReady = false;
+    QString m_lastInstantMarkdown;
     QString m_pendingMarkdown;
     QJsonObject m_pendingOptions;
+    QString m_pendingHeadingId;
     QString m_currentMarkdown;
     QString m_renderedMarkdown;
     QString m_currentActiveHeading;
@@ -74,4 +110,3 @@ private:
     bool m_lastFindCaseSensitive = false;
     qreal m_zoomFactor = 1.0;
 };
-

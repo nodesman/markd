@@ -20,13 +20,13 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
     using Zinsser::describe;
     using Zinsser::it;
 
-    QFile cssFile(":/web/css/obsidian.css");
+    QFile cssFile(":/web/styles/obsidian.css");
     assert(cssFile.open(QIODevice::ReadOnly | QIODevice::Text));
     QString css = QString::fromUtf8(cssFile.readAll());
     cssFile.close();
     assert(!css.isEmpty());
 
-    QFile jsFile(":/web/js/render.js");
+    QFile jsFile(":/web/src/render.js");
     assert(jsFile.open(QIODevice::ReadOnly | QIODevice::Text));
     QString js = QString::fromUtf8(jsFile.readAll());
     jsFile.close();

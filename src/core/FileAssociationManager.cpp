@@ -14,23 +14,45 @@ namespace {
 
 #if defined(Q_OS_MACOS)
 using LSSetDefaultHandlerFn = OSStatus (*)(CFStringRef, uint32_t, CFStringRef);
+using LSRegisterURLFn = OSStatus (*)(CFURLRef, Boolean);
 
-bool registerMacosLaunchServices()
+void registerBundleWithCoreServices(LSRegisterURLFn regFn, const QString& bundlePath)
+{
+    if (!regFn) return;
+    const QByteArray utf8Path = bundlePath.toUtf8();
+    CFURLRef bundleUrl = CFURLCreateFromFileSystemRepresentation(
+        kCFAllocatorDefault, reinterpret_cast<const UInt8*>(utf8Path.constData()), utf8Path.size(), true);
+    if (!bundleUrl) return;
+    regFn(bundleUrl, true);
+    CFRelease(bundleUrl);
+}
+
+void registerActiveMacosBundleUrl(void* handle, const QString& bundlePath)
+{
+    if (bundlePath.isEmpty()) return;
+    registerBundleWithCoreServices(reinterpret_cast<LSRegisterURLFn>(dlsym(handle, "LSRegisterURL")), bundlePath);
+    const QString lsregisterBin = QStringLiteral(
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister");
+    if (QFileInfo::exists(lsregisterBin)) {
+        QProcess::execute(lsregisterBin, { QStringLiteral("-f"), bundlePath });
+    }
+}
+
+bool registerMacosLaunchServices(const QString& binaryPath)
 {
     void* handle = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
     if (!handle) return false;
 
-    auto setFn = reinterpret_cast<LSSetDefaultHandlerFn>(
-        dlsym(handle, "LSSetDefaultRoleHandlerForContentType"));
+    registerActiveMacosBundleUrl(handle, FileAssociationManager::resolveMacosAppBundlePath(binaryPath));
+    auto setFn = reinterpret_cast<LSSetDefaultHandlerFn>(dlsym(handle, "LSSetDefaultRoleHandlerForContentType"));
     if (!setFn) {
         dlclose(handle);
         return false;
     }
 
-    CFStringRef bundleId = CFSTR("org.markd.app");
     constexpr uint32_t kAllRoles = 0xFFFFFFFF;
-    setFn(CFSTR("net.daringfireball.markdown"), kAllRoles, bundleId);
-    setFn(CFSTR("public.markdown"), kAllRoles, bundleId);
+    setFn(CFSTR("net.daringfireball.markdown"), kAllRoles, CFSTR("org.markd.app"));
+    setFn(CFSTR("public.markdown"), kAllRoles, CFSTR("org.markd.app"));
     dlclose(handle);
     return true;
 }
@@ -42,19 +64,14 @@ bool writeLinuxDesktopFile(const QString& binaryPath)
     if (appsDir.isEmpty()) return false;
     QDir().mkpath(appsDir);
 
-    const QString desktopPath = appsDir + QStringLiteral("/markd.desktop");
-    QFile file(desktopPath);
+    QFile file(appsDir + QStringLiteral("/markd.desktop"));
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-
-    const QString entry = FileAssociationManager::formatDesktopEntry(binaryPath, QStringLiteral("markd"));
-    file.write(entry.toUtf8());
+    file.write(FileAssociationManager::formatDesktopEntry(binaryPath, QStringLiteral("markd")).toUtf8());
     file.close();
 
     QProcess::execute(QStringLiteral("xdg-mime"), {
-        QStringLiteral("default"),
-        QStringLiteral("markd.desktop"),
-        QStringLiteral("text/markdown"),
-        QStringLiteral("text/x-markdown")
+        QStringLiteral("default"), QStringLiteral("markd.desktop"),
+        QStringLiteral("text/markdown"), QStringLiteral("text/x-markdown")
     });
     return true;
 }
@@ -82,28 +99,17 @@ FileAssociationManager::FileAssociationManager(PlatformRegistrar customRegistrar
 
 QStringList FileAssociationManager::supportedExtensions()
 {
-    return {
-        QStringLiteral(".md"),
-        QStringLiteral(".markdown"),
-        QStringLiteral(".mdown"),
-        QStringLiteral(".mkd")
-    };
+    return { QStringLiteral(".md"), QStringLiteral(".markdown"), QStringLiteral(".mdown"), QStringLiteral(".mkd") };
 }
 
 QStringList FileAssociationManager::supportedMimeTypes()
 {
-    return {
-        QStringLiteral("text/markdown"),
-        QStringLiteral("text/x-markdown")
-    };
+    return { QStringLiteral("text/markdown"), QStringLiteral("text/x-markdown") };
 }
 
 QStringList FileAssociationManager::supportedUtis()
 {
-    return {
-        QStringLiteral("net.daringfireball.markdown"),
-        QStringLiteral("public.markdown")
-    };
+    return { QStringLiteral("net.daringfireball.markdown"), QStringLiteral("public.markdown") };
 }
 
 QString FileAssociationManager::formatDesktopEntry(const QString& binaryPath, const QString& iconPath)
@@ -135,6 +141,31 @@ QStringList FileAssociationManager::formatWindowsRegistryCommands(const QString&
     return cmds;
 }
 
+QString FileAssociationManager::resolveMacosAppBundlePath(const QString& binaryPath)
+{
+    const QString trimmed = binaryPath.trimmed();
+    if (trimmed.isEmpty()) return QString();
+
+    const QFileInfo info(trimmed);
+    const QString canonical = info.exists() ? info.canonicalFilePath() : QString();
+    const QString clean = canonical.isEmpty() ? QDir::cleanPath(trimmed) : canonical;
+
+    const QString macosMarker = QStringLiteral(".app/Contents/MacOS/");
+    const qsizetype markerIdx = clean.indexOf(macosMarker, 0, Qt::CaseInsensitive);
+    if (markerIdx > 0) {
+        return clean.left(markerIdx + 4);
+    }
+    if (clean.endsWith(QStringLiteral(".app"), Qt::CaseInsensitive)) {
+        return clean;
+    }
+
+    const QString siblingBundle = QDir::cleanPath(QFileInfo(clean).dir().filePath(QStringLiteral("../libexec/Markd.app")));
+    if (QFileInfo::exists(siblingBundle)) {
+        return siblingBundle;
+    }
+    return QString();
+}
+
 bool FileAssociationManager::registerAsDefault(const QString& binaryPath) const
 {
     if (binaryPath.trimmed().isEmpty() || !m_registrar) return false;
@@ -145,7 +176,7 @@ bool FileAssociationManager::registerCurrentPlatformDefault(const QString& binar
 {
     if (binaryPath.trimmed().isEmpty()) return false;
 #if defined(Q_OS_MACOS)
-    return registerMacosLaunchServices();
+    return registerMacosLaunchServices(binaryPath);
 #elif defined(Q_OS_WIN)
     return runWindowsRegistryRegistration(binaryPath);
 #else

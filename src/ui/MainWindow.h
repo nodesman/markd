@@ -41,7 +41,8 @@ public:
     bool loadFile(const QString& filePath);
     QString currentFilePath() const;
     QString documentBuffer() const;
-    EditorView* editor() const { return m_editor; }
+    EditorView* editor() const;
+    uint64_t editorPlainTextSyncCount() const { return m_editorPlainTextSyncCount; }
     PreviewView* previewView() const { return m_previewView; }
     HeaderBar* headerBar() const { return m_headerBar; }
     ModeSwitcher* modeSwitcher() const { return m_modeSwitcher; }
@@ -97,6 +98,7 @@ public slots:
     void runBackgroundUpdateCheck();
 
 protected:
+    void showEvent(QShowEvent* event) override;
     void changeEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -138,6 +140,7 @@ private:
     QString determineTargetHeading() const;
     qreal determineScrollRatio(const QString& targetHeadingId) const;
     void reloadEditorBuffer(const QString& md);
+    void syncEditorBufferIfNeeded() const;
     void restoreActiveFocus();
 
     DocumentSession* m_session = nullptr;
@@ -169,5 +172,7 @@ private:
     bool m_isDiskReloading = false;
     uint64_t m_clipboardOpGeneration = 0;
     bool m_isCopyingHtml = false;
+    mutable bool m_editorBufferDirty = false;
+    mutable uint64_t m_editorPlainTextSyncCount = 0;
     ModeSwitcher::DocumentMode m_currentMode = ModeSwitcher::DocumentMode::Edit;
 };
