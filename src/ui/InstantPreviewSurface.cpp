@@ -6,6 +6,7 @@
 #include <QFont>
 #include <QMap>
 #include <QPalette>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -78,6 +79,19 @@ QString resolveDocumentDirectoryUrl(const QString& baseFilePath) {
     const QString dirPath = QFileInfo(baseFilePath).absolutePath();
     return dirPath.isEmpty() ? QString() : QUrl::fromLocalFile(dirPath + QLatin1Char('/')).toString();
 }
+QString maskDeferredSyntax(QString md) {
+    if (md.contains(QLatin1String("```mermaid"))) {
+        static const QRegularExpression mermaidRe(QStringLiteral("(?ms)^[ \\t]*```mermaid[^\\n]*\\n.*?^[ \\t]*```[ \\t]*$"));
+        md.replace(mermaidRe, QStringLiteral("> *Diagram*"));
+    }
+    if (md.contains(QLatin1Char('$'))) {
+        static const QRegularExpression blockMathRe(QStringLiteral("(?ms)\\$\\$.+?\\$\\$"));
+        static const QRegularExpression inlineMathRe(QStringLiteral("\\$(?!\\s)([^$\\n]*[\\\\^_][^$\\n]*)(?<!\\s)\\$"));
+        md.replace(blockMathRe, QStringLiteral("> *Equation*"));
+        md.replace(inlineMathRe, QStringLiteral("…"));
+    }
+    return md;
+}
 } // namespace
 
 InstantPreviewSurface::InstantPreviewSurface(QWidget* parent)
@@ -112,44 +126,35 @@ void InstantPreviewSurface::syncEditorialMargins() {
 }
 void InstantPreviewSurface::configureObsidianPalette() {
     QPalette pal = palette();
-    pal.setColor(QPalette::Base, QColor("#050505"));
-    pal.setColor(QPalette::Window, QColor("#050505"));
-    pal.setColor(QPalette::Text, QColor("#f0f6fc"));
-    pal.setColor(QPalette::WindowText, QColor("#f0f6fc"));
+    for (auto role : {QPalette::Base, QPalette::Window}) pal.setColor(role, QColor("#050505"));
+    for (auto role : {QPalette::Text, QPalette::WindowText}) pal.setColor(role, QColor("#f0f6fc"));
     pal.setColor(QPalette::Link, QColor("#58a6ff"));
-    setPalette(pal);
-    setAutoFillBackground(true);
-    viewport()->setPalette(pal);
-    viewport()->setAutoFillBackground(true);
+    setPalette(pal); setAutoFillBackground(true);
+    viewport()->setPalette(pal); viewport()->setAutoFillBackground(true);
     setStyleSheet(QStringLiteral("QTextBrowser { background-color: #050505; color: #f0f6fc; border: none; }"));
 }
 void InstantPreviewSurface::renderMarkdown(const QString& markdown, const QString& baseFilePath) {
     m_headingPositions.clear();
     document()->setMetaInformation(QTextDocument::DocumentUrl, resolveDocumentDirectoryUrl(baseFilePath));
     if (markdown.isEmpty()) { clear(); syncEditorialMargins(); return; }
-    document()->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
+    document()->setMarkdown(maskDeferredSyntax(markdown), QTextDocument::MarkdownDialectGitHub);
     indexAndStyleDocument(document(), m_headingPositions);
     syncEditorialMargins();
 }
-
 double InstantPreviewSurface::verticalScrollRatio() const {
     QScrollBar* bar = verticalScrollBar();
-    if (!bar || bar->maximum() <= 0) return 0.0;
-    return std::clamp(static_cast<double>(bar->value()) / static_cast<double>(bar->maximum()), 0.0, 1.0);
+    return (!bar || bar->maximum() <= 0) ? 0.0 : std::clamp(static_cast<double>(bar->value()) / static_cast<double>(bar->maximum()), 0.0, 1.0);
 }
 void InstantPreviewSurface::setVerticalScrollRatio(double ratio) {
     QScrollBar* bar = verticalScrollBar();
-    if (!bar || bar->maximum() <= 0) return;
-    bar->setValue(static_cast<int>(std::llround(std::clamp(ratio, 0.0, 1.0) * static_cast<double>(bar->maximum()))));
+    if (bar && bar->maximum() > 0) bar->setValue(static_cast<int>(std::llround(std::clamp(ratio, 0.0, 1.0) * static_cast<double>(bar->maximum()))));
 }
 void InstantPreviewSurface::scrollToAnchorName(const QString& anchor) {
     const QString key = anchor.trimmed();
     if (key.isEmpty() || !m_headingPositions.contains(key)) return;
     const QTextBlock block = document()->findBlock(m_headingPositions.value(key));
-    if (!block.isValid()) return;
-    if (QScrollBar* bar = verticalScrollBar()) {
-        const qreal top = document()->documentLayout()->blockBoundingRect(block).top();
-        bar->setValue(static_cast<int>(std::llround(top)));
+    if (block.isValid() && verticalScrollBar()) {
+        verticalScrollBar()->setValue(static_cast<int>(std::llround(document()->documentLayout()->blockBoundingRect(block).top())));
     }
 }
 void InstantPreviewSurface::applyZoomFactor(qreal factor) {
@@ -164,8 +169,7 @@ void InstantPreviewSurface::applyZoomFactor(qreal factor) {
 bool InstantPreviewSurface::findString(const QString& subString, bool backward, bool caseSensitive) {
     if (subString.isEmpty()) {
         QTextCursor cursor = textCursor();
-        cursor.clearSelection();
-        setTextCursor(cursor);
+        cursor.clearSelection(); setTextCursor(cursor);
         return false;
     }
     QTextDocument::FindFlags flags;
@@ -177,9 +181,7 @@ bool InstantPreviewSurface::findString(const QString& subString, bool backward, 
     setTextCursor(wrapCursor);
     return find(subString, flags);
 }
-int InstantPreviewSurface::countOccurrences(const QString& subString, bool caseSensitive) const {
-    return subString.isEmpty() ? 0 : toPlainText().count(subString, caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
-}
+int InstantPreviewSurface::countOccurrences(const QString& subString, bool caseSensitive) const { return subString.isEmpty() ? 0 : toPlainText().count(subString, caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive); }
 void InstantPreviewSurface::copySelection() { copy(); }
 void InstantPreviewSurface::selectAllContent() { selectAll(); }
 void InstantPreviewSurface::setExternalUrlHandler(std::function<void(const QUrl&)> handler) { if (handler) m_externalUrlHandler = std::move(handler); }

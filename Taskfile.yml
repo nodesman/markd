@@ -183,6 +183,7 @@ tasks:
         cp -R "{{.BUILD_DIR}}/dist/Markd.app" /Applications/Markd.app
         ln -s /Applications/Markd.app "$HOME/.local/markd.app"
         "$LSREGISTER" -f /Applications/Markd.app
+        MARKD_STARTUP_BENCHMARK=2 QT_QPA_PLATFORM=offscreen /Applications/Markd.app/Contents/MacOS/markd resources/showcase.md >/dev/null 2>&1 || true
 
   install-cli:
     desc: Install hermetic Markd.app bundle into ~/.local/libexec/Markd.app and CLI launcher into ~/.local/bin/markd

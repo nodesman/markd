@@ -477,6 +477,7 @@ function sanitizeCompiledMermaidSvg(mDiv, svgEl) {
     for (var i = 0; i < styles.length; i++) {
         scrubMermaidStyleElement(styles[i]);
     }
+    mDiv.setAttribute('data-processed', 'true');
 }
 
 async function renderSingleMermaidNode(mermaidApi, mDiv) {

@@ -152,6 +152,34 @@ fi
 APP_BIN="$APP_BUNDLE/Contents/MacOS/markd"
 WEBENGINE_PLUGIN="$APP_BUNDLE/Contents/Frameworks/libmarkd_webengine.dylib"
 
+# Thin universal (x86_64 + arm64) Qt frameworks to match APP_BIN when single-architecture
+if command -v lipo >/dev/null 2>&1; then
+    TARGET_ARCH="$(lipo -archs "$APP_BIN" 2>/dev/null | awk '{print $1}')"
+    ARCH_COUNT="$(lipo -archs "$APP_BIN" 2>/dev/null | wc -w | tr -d ' ')"
+    if [[ "$ARCH_COUNT" == "1" && -n "$TARGET_ARCH" ]]; then
+        python3 - "$APP_BUNDLE" "$TARGET_ARCH" <<'PY'
+import os, subprocess, sys
+bundle, target_arch = sys.argv[1], sys.argv[2]
+for root, _, files in os.walk(os.path.join(bundle, "Contents")):
+    for name in files:
+        full = os.path.join(root, name)
+        if os.path.islink(full) or not os.path.isfile(full):
+            continue
+        if name.endswith((".plist", ".icns", ".pak", ".dat", ".bin", ".json", ".qmltypes", ".png")):
+            continue
+        info = subprocess.check_output(["file", "-b", full], text=True)
+        if "Mach-O universal binary" not in info:
+            continue
+        archs = subprocess.check_output(["lipo", "-archs", full], text=True).split()
+        if target_arch in archs and len(archs) > 1:
+            thin_tmp = full + ".thin"
+            subprocess.check_call(["lipo", "-thin", target_arch, full, "-output", thin_tmp])
+            os.chmod(thin_tmp, os.stat(full).st_mode)
+            os.replace(thin_tmp, full)
+PY
+    fi
+fi
+
 if command -v otool >/dev/null 2>&1 && command -v install_name_tool >/dev/null 2>&1; then
     for target_macho in "$APP_BIN" "$WEBENGINE_PLUGIN"; do
         while IFS= read -r existing_rpath; do

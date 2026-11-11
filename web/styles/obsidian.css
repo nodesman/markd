@@ -459,6 +459,11 @@ img {
     background: transparent;
 }
 
+.mermaid:not([data-processed="true"]) {
+    visibility: hidden;
+    min-height: 80px;
+}
+
 .mermaid svg {
     margin: 0 auto;
     display: block;

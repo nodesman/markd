@@ -176,9 +176,18 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
                 "[External](https://example.com/docs)\n\n"
                 "[Contact](mailto:team@example.com)\n\n"
                 "![Diagram](diagram.png)\n\n"
+                "Price stays $100 while math $x = \\frac{1}{2}$ and:\n\n"
+                "$$\n\\int_0^1 x^2 dx\n$$\n\n"
+                "```mermaid\ngraph TD;\nRawNode-->HiddenNode;\n```\n\n"
                 "## Second Heading\n\n"
                 "Target section text.\n";
             surface.renderMarkdown(md, docPath);
+            assert(!surface.toPlainText().contains("RawNode"));
+            assert(!surface.toPlainText().contains("\\int_0^1"));
+            assert(!surface.toPlainText().contains("\\frac{1}{2}"));
+            assert(surface.toPlainText().contains("$100"));
+            assert(surface.toPlainText().contains("Diagram"));
+            assert(surface.toPlainText().contains("Equation"));
 
             const QString baseUrl = surface.document()->metaInformation(QTextDocument::DocumentUrl);
             assert(baseUrl.startsWith("file://"));

@@ -1626,6 +1626,22 @@ describe('render.js Native Node.js Test Suite', () => {
                 const labelNode = env.doc.querySelector('#content .mermaid svg foreignObject .nodeLabel');
                 assert.ok(labelNode !== null);
                 assert.equal(labelNode.textContent, 'Open File');
+                const mermaidHost = env.doc.querySelector('#content .mermaid');
+                assert.equal(mermaidHost.getAttribute('data-processed'), 'true');
+                assert.equal(env.win.getComputedStyle(mermaidHost).visibility, 'visible');
+            });
+
+            it('hides uncompiled Mermaid source in DOM until async bundle compilation completes', async () => {
+                const env = createRenderEnvironment();
+                let visibilityDuringCompile = null;
+                env.win.mermaid.run = async ({ nodes }) => {
+                    visibilityDuringCompile = env.win.getComputedStyle(nodes[0]).visibility;
+                    nodes[0].innerHTML = '<svg viewBox="0 0 80 40"><text>Ready</text></svg>';
+                };
+
+                await env.win.renderMarkdown('```mermaid\ngraph TD;\nRawCode-->Hidden;\n```\n');
+                assert.equal(visibilityDuringCompile, 'hidden');
+                assert.equal(env.win.getComputedStyle(env.doc.querySelector('#content .mermaid')).visibility, 'visible');
             });
 
             it('neutralizes Mermaid click directives and javascript URI callbacks', async () => {
