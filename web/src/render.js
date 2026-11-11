@@ -321,11 +321,15 @@ function ensureMermaidLoaded() {
 }
 window.ensureMermaidLoaded = ensureMermaidLoaded;
 
+function isDarkMermaidPalette(themeName) {
+    var lower = themeName.toLowerCase();
+    return lower.indexOf('dark') !== -1 || lower.indexOf('obsidian') !== -1;
+}
+
 function syncMermaidTheme(themeName) {
     if (!themeName) return;
     document.documentElement.setAttribute('data-theme', themeName);
-    var isDarkTheme = themeName === 'dark' || themeName.indexOf('dark') !== -1;
-    activeMermaidTheme = isDarkTheme ? 'dark' : 'default';
+    activeMermaidTheme = isDarkMermaidPalette(themeName) ? 'dark' : 'default';
     if (typeof window.mermaid !== 'undefined') {
         applyMermaidConfig();
     }
@@ -455,6 +459,26 @@ function replaceWithMermaidErrorCard(mDiv, rawDiagramCode, err) {
     mDiv.replaceWith(errorCard);
 }
 
+function scrubMermaidStyleElement(styleNode) {
+    var safeCss = styleNode.textContent
+        .replace(/position\s*:\s*(?:fixed|absolute)/gi, 'position: static')
+        .replace(/@import\b[^;]*;?/gi, '');
+    styleNode.textContent = safeCss;
+}
+
+function sanitizeCompiledMermaidSvg(mDiv, svgEl) {
+    mDiv.innerHTML = DOMPurify.sanitize(svgEl.outerHTML, {
+        USE_PROFILES: { html: true, svg: true, svgFilters: true },
+        ADD_TAGS: ['foreignObject'],
+        ADD_ATTR: ['dominant-baseline', 'xmlns'],
+        HTML_INTEGRATION_POINTS: { foreignobject: true }
+    });
+    var styles = mDiv.querySelectorAll('style');
+    for (var i = 0; i < styles.length; i++) {
+        scrubMermaidStyleElement(styles[i]);
+    }
+}
+
 async function renderSingleMermaidNode(mermaidApi, mDiv) {
     var rawDiagramCode = mDiv.dataset.rawCode;
     try {
@@ -462,10 +486,7 @@ async function renderSingleMermaidNode(mermaidApi, mDiv) {
         if (!mDiv.isConnected) return;
         var svgEl = mDiv.querySelector('svg');
         if (svgEl) {
-            mDiv.innerHTML = DOMPurify.sanitize(svgEl.outerHTML, {
-                USE_PROFILES: { svg: true, svgFilters: true },
-                FORBID_TAGS: ['style']
-            });
+            sanitizeCompiledMermaidSvg(mDiv, svgEl);
         }
     } catch (e) {
         replaceWithMermaidErrorCard(mDiv, rawDiagramCode, e);

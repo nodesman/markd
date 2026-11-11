@@ -1290,6 +1290,10 @@ describe('render.js Native Node.js Test Suite', () => {
                 env.win.setTheme('obsidian-dark');
                 assert.equal(initializedTheme, 'dark');
 
+                env.win.setTheme('obsidian');
+                assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'obsidian');
+                assert.equal(initializedTheme, 'dark');
+
                 env.win.setTheme('light');
                 assert.equal(env.doc.documentElement.getAttribute('data-theme'), 'light');
                 assert.equal(initializedTheme, 'default');
@@ -1586,6 +1590,42 @@ describe('render.js Native Node.js Test Suite', () => {
                 };
                 await env.win.renderMarkdown('```mermaid\ngraph TD;\nC-->D;\n```\n', { force: true });
                 assert.ok(env.doc.querySelector('#content') !== null);
+            });
+
+            it('preserves Mermaid SVG style rules and foreignObject labels while neutralizing script and overlay rules', async () => {
+                const env = createRenderEnvironment();
+                env.win.mermaid.run = async ({ nodes }) => {
+                    for (const node of nodes) {
+                        node.innerHTML = [
+                            '<svg id="mermaid-0" viewBox="0 0 240 100">',
+                            '<style>#mermaid-0 .node rect { fill: #1f2020; stroke: #81B1FF; } #mermaid-0 .flowchart-link { fill: none; stroke: #ccc; } .hijack { position: fixed; top: 0; } @import url("https://evil.example/a.css");</style>',
+                            '<script>window.__mermaidStyleXss = true;</script>',
+                            '<g class="node"><rect width="120" height="44"></rect>',
+                            '<foreignObject width="120" height="44"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>Open File</p></span></div></foreignObject>',
+                            '</g></svg>'
+                        ].join('');
+                    }
+                };
+
+                await env.win.renderMarkdown(
+                    '<svg class="raw-user-svg"><style>body { display: none; }</style></svg>\n\n' +
+                    '```mermaid\ngraph LR;\nA[Open File]-->B[Render];\n```\n'
+                );
+
+                assert.equal(env.win.__mermaidStyleXss, undefined);
+                assert.equal(env.doc.querySelectorAll('#content script').length, 0);
+                assert.equal(env.doc.querySelectorAll('#content .raw-user-svg style').length, 0);
+
+                const mermaidStyle = env.doc.querySelector('#content .mermaid svg style');
+                assert.ok(mermaidStyle !== null);
+                assert.ok(mermaidStyle.textContent.includes('fill: #1f2020'));
+                assert.ok(mermaidStyle.textContent.includes('fill: none'));
+                assert.equal(/position\s*:\s*(?:fixed|absolute)/i.test(mermaidStyle.textContent), false);
+                assert.equal(/@import/i.test(mermaidStyle.textContent), false);
+
+                const labelNode = env.doc.querySelector('#content .mermaid svg foreignObject .nodeLabel');
+                assert.ok(labelNode !== null);
+                assert.equal(labelNode.textContent, 'Open File');
             });
 
             it('neutralizes Mermaid click directives and javascript URI callbacks', async () => {

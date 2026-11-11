@@ -410,6 +410,17 @@ img {
     color: var(--text);
 }
 
+.expandable-toolbar button:focus:not(:focus-visible),
+.fullview-toolbar button:focus:not(:focus-visible) {
+    outline: none;
+}
+
+.expandable-toolbar button:focus-visible,
+.fullview-toolbar button:focus-visible {
+    outline: 1px solid var(--link);
+    outline-offset: -2px;
+}
+
 .expandable-toolbar .zoom-label {
     font-size: 11px;
     color: var(--text-secondary);
@@ -427,6 +438,7 @@ img {
     overflow: hidden;
     cursor: grab;
     min-height: 100px;
+    padding: 20px 16px;
     text-align: center;
 }
 

@@ -27,8 +27,12 @@ signals:
     void externalLinkActivated(const QUrl& url);
     void internalAnchorActivated(const QString& anchor);
 
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
 private:
     void configureObsidianPalette();
+    void syncEditorialMargins();
     void handleAnchorActivated(const QUrl& url);
 
     std::function<void(const QUrl&)> m_externalUrlHandler;

@@ -13,6 +13,7 @@
 #include <QTemporaryFile>
 #include <QTest>
 #include <QTextDocument>
+#include <QTextFrame>
 #include <QUrl>
 #include <QUuid>
 #include <QWebEnginePage>
@@ -154,7 +155,12 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
             const QString docPath = tempDir.filePath("links.md");
 
             InstantPreviewSurface surface;
+            surface.show();
+            surface.resize(1000, 400);
+            assert(std::abs(surface.document()->rootFrame()->frameFormat().leftMargin() - 168.0) < 0.5);
+            assert(std::abs(surface.document()->rootFrame()->frameFormat().topMargin() - 40.0) < 0.5);
             surface.resize(800, 400);
+            assert(std::abs(surface.document()->rootFrame()->frameFormat().leftMargin() - 68.0) < 0.5);
 
             QList<QUrl> openedExternalUrls;
             surface.setExternalUrlHandler([&](const QUrl& url) {

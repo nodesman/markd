@@ -10,9 +10,9 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextFrame>
 #include <algorithm>
 #include <cmath>
-
 namespace {
 QStringList platformProseFamilies() {
 #if defined(Q_OS_MACOS)
@@ -23,7 +23,6 @@ QStringList platformProseFamilies() {
     return {};
 #endif
 }
-
 QString platformMonoFamily() {
 #if defined(Q_OS_MACOS)
     return QStringLiteral("Menlo");
@@ -33,13 +32,10 @@ QString platformMonoFamily() {
     return QStringLiteral("Monospace");
 #endif
 }
-
 bool isCodeFormat(const QTextCharFormat& fmt) {
-    if (fmt.fontFixedPitch()) return true;
-    if (fmt.intProperty(QTextFormat::FontStyleHint) == QFont::Monospace) return true;
+    if (fmt.fontFixedPitch() || fmt.intProperty(QTextFormat::FontStyleHint) == QFont::Monospace) return true;
     return fmt.hasProperty(QTextFormat::FontFamilies) || fmt.hasProperty(QTextFormat::FontFamily);
 }
-
 QTextCharFormat normalizedCodeFormat(const QTextCharFormat& baseFmt) {
     QTextCharFormat codeFmt = baseFmt;
     codeFmt.clearProperty(QTextFormat::FontFamily);
@@ -50,7 +46,6 @@ QTextCharFormat normalizedCodeFormat(const QTextCharFormat& baseFmt) {
     codeFmt.setForeground(QColor("#e6edf3"));
     return codeFmt;
 }
-
 void styleBlockCodeFragments(QTextCursor& editCursor, const QTextBlock& block) {
     if (isCodeFormat(block.charFormat())) {
         editCursor.setPosition(block.position());
@@ -64,13 +59,10 @@ void styleBlockCodeFragments(QTextCursor& editCursor, const QTextBlock& block) {
         editCursor.setCharFormat(normalizedCodeFormat(frag.charFormat()));
     }
 }
-
 void recordHeadingPosition(const QTextBlock& block, QMap<QString, int>& seenSlugs, QHash<QString, int>& headingPositions) {
     if (block.blockFormat().headingLevel() <= 0) return;
-    const QString slug = TocParser::slugify(TocParser::cleanHeadingText(block.text()), seenSlugs);
-    headingPositions.insert(slug, block.position());
+    headingPositions.insert(TocParser::slugify(TocParser::cleanHeadingText(block.text()), seenSlugs), block.position());
 }
-
 void indexAndStyleDocument(QTextDocument* doc, QHash<QString, int>& headingPositions) {
     QMap<QString, int> seenSlugs;
     QTextCursor editCursor(doc);
@@ -81,7 +73,6 @@ void indexAndStyleDocument(QTextDocument* doc, QHash<QString, int>& headingPosit
     }
     editCursor.endEditBlock();
 }
-
 QString resolveDocumentDirectoryUrl(const QString& baseFilePath) {
     if (baseFilePath.trimmed().isEmpty()) return QString();
     const QString dirPath = QFileInfo(baseFilePath).absolutePath();
@@ -99,19 +90,32 @@ InstantPreviewSurface::InstantPreviewSurface(QWidget* parent)
     setAttribute(Qt::WA_InputMethodEnabled, false);
     setFrameShape(QFrame::NoFrame);
     configureObsidianPalette();
+    document()->setDocumentMargin(0.0);
     applyZoomFactor(1.0);
-    document()->setDocumentMargin(28.0);
     connect(this, &QTextBrowser::anchorClicked, this, &InstantPreviewSurface::handleAnchorActivated);
 }
-
+void InstantPreviewSurface::resizeEvent(QResizeEvent* event) {
+    QTextBrowser::resizeEvent(event);
+    syncEditorialMargins();
+}
+void InstantPreviewSurface::syncEditorialMargins() {
+    const int px = font().pixelSize() > 0 ? font().pixelSize() : 15;
+    const qreal zoom = std::max(0.25, static_cast<qreal>(px) / 15.0);
+    const qreal side = (width() < 160) ? 16.0 : (std::max(0.0, (width() - 760.0 * zoom) * 0.5) + 48.0 * zoom);
+    QTextFrame* root = document()->rootFrame();
+    QTextFrameFormat fmt = root->frameFormat();
+    fmt.setTopMargin(40.0 * zoom);
+    fmt.setBottomMargin(64.0 * zoom);
+    fmt.setLeftMargin(side);
+    fmt.setRightMargin(side);
+    root->setFrameFormat(fmt);
+}
 void InstantPreviewSurface::configureObsidianPalette() {
     QPalette pal = palette();
-    const QColor canvas("#050505");
-    const QColor prose("#f0f6fc");
-    pal.setColor(QPalette::Base, canvas);
-    pal.setColor(QPalette::Window, canvas);
-    pal.setColor(QPalette::Text, prose);
-    pal.setColor(QPalette::WindowText, prose);
+    pal.setColor(QPalette::Base, QColor("#050505"));
+    pal.setColor(QPalette::Window, QColor("#050505"));
+    pal.setColor(QPalette::Text, QColor("#f0f6fc"));
+    pal.setColor(QPalette::WindowText, QColor("#f0f6fc"));
     pal.setColor(QPalette::Link, QColor("#58a6ff"));
     setPalette(pal);
     setAutoFillBackground(true);
@@ -119,16 +123,13 @@ void InstantPreviewSurface::configureObsidianPalette() {
     viewport()->setAutoFillBackground(true);
     setStyleSheet(QStringLiteral("QTextBrowser { background-color: #050505; color: #f0f6fc; border: none; }"));
 }
-
 void InstantPreviewSurface::renderMarkdown(const QString& markdown, const QString& baseFilePath) {
     m_headingPositions.clear();
     document()->setMetaInformation(QTextDocument::DocumentUrl, resolveDocumentDirectoryUrl(baseFilePath));
-    if (markdown.isEmpty()) {
-        clear();
-        return;
-    }
+    if (markdown.isEmpty()) { clear(); syncEditorialMargins(); return; }
     document()->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
     indexAndStyleDocument(document(), m_headingPositions);
+    syncEditorialMargins();
 }
 
 double InstantPreviewSurface::verticalScrollRatio() const {
@@ -155,11 +156,11 @@ void InstantPreviewSurface::applyZoomFactor(qreal factor) {
     QFont current = font();
     const QStringList prose = platformProseFamilies();
     if (!prose.isEmpty()) current.setFamilies(prose);
-    current.setPointSizeF(13.0 * std::clamp(factor, 0.25, 3.0));
+    current.setPixelSize(std::max(4, static_cast<int>(std::lround(15.0 * std::clamp(factor, 0.25, 3.0)))));
     setFont(current);
     document()->setDefaultFont(current);
+    syncEditorialMargins();
 }
-
 bool InstantPreviewSurface::findString(const QString& subString, bool backward, bool caseSensitive) {
     if (subString.isEmpty()) {
         QTextCursor cursor = textCursor();
@@ -177,14 +178,11 @@ bool InstantPreviewSurface::findString(const QString& subString, bool backward, 
     return find(subString, flags);
 }
 int InstantPreviewSurface::countOccurrences(const QString& subString, bool caseSensitive) const {
-    if (subString.isEmpty()) return 0;
-    return toPlainText().count(subString, caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
+    return subString.isEmpty() ? 0 : toPlainText().count(subString, caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
 }
 void InstantPreviewSurface::copySelection() { copy(); }
 void InstantPreviewSurface::selectAllContent() { selectAll(); }
-void InstantPreviewSurface::setExternalUrlHandler(std::function<void(const QUrl&)> handler) {
-    if (handler) m_externalUrlHandler = std::move(handler);
-}
+void InstantPreviewSurface::setExternalUrlHandler(std::function<void(const QUrl&)> handler) { if (handler) m_externalUrlHandler = std::move(handler); }
 void InstantPreviewSurface::handleAnchorActivated(const QUrl& url) {
     if (!url.isValid()) return;
     if (url.scheme().isEmpty() && url.path().isEmpty() && !url.fragment().isEmpty()) {
