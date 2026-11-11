@@ -99,11 +99,22 @@ inline void testCommandLineOptions() {
             assert(opts.showVersion);
         });
 
+        it("flags default file-association registration option (--register-default)", [&]() {
+            QStringList args = {"markd", "--register-default"};
+            CommandLineOptions opts = CommandLineOptions::parse(args);
+            assert(opts.parseSuccess);
+            assert(opts.registerDefault);
+            assert(!opts.showHelp);
+            assert(!opts.showVersion);
+            assert(!opts.hasFile);
+        });
+
         it("generates formatted help and version text strings", [&]() {
             QString help = CommandLineOptions::helpText("markd");
             assert(help.contains("Usage: markd [options] [file.md]"));
             assert(help.contains("--help"));
             assert(help.contains("--version"));
+            assert(help.contains("--register-default"));
 
             QString version = CommandLineOptions::versionText();
             assert(version.contains(QString("Markd version %1").arg(MARKD_VERSION_STR)));

@@ -9,6 +9,7 @@ VERSION=""
 URL=""
 SHA256=""
 OUTPUT=""
+CASK_OUTPUT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --output)
             OUTPUT="$2"
+            shift 2
+            ;;
+        --cask-output)
+            CASK_OUTPUT="$2"
             shift 2
             ;;
         *)
@@ -67,6 +72,21 @@ class Markd < Formula
     bin.write_exec_script libexec/"Markd.app/Contents/MacOS/markd"
   end
 
+  def post_install
+    lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    system lsregister, "-f", "#{opt_libexec}/Markd.app" if File.executable?(lsregister)
+    system "#{bin}/markd", "--register-default"
+  rescue StandardError
+    nil
+  end
+
+  def caveats
+    <<~EOS
+      To ensure Finder opens .md files with Markd by default, run:
+        markd --register-default
+    EOS
+  end
+
   test do
     assert_match version.to_s, shell_output("#{bin}/markd --version")
   end
@@ -74,10 +94,47 @@ end
 EOF
 )"
 
+CASK_CONTENT="$(cat <<EOF
+cask "markd" do
+  version "${VERSION}"
+  sha256 "${SHA256}"
+
+  url "${URL}"
+  name "Markd"
+  desc "Fast native C++20 / Qt 6 Markdown reader and editor"
+  homepage "https://markd.aramudan.dev"
+
+  app "Markd.app"
+  binary "#{appdir}/Markd.app/Contents/MacOS/markd"
+
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-cr", "#{appdir}/Markd.app"],
+                   sudo: false
+    system_command "#{appdir}/Markd.app/Contents/MacOS/markd",
+                   args: ["--register-default"],
+                   sudo: false
+  end
+
+  zap trash: [
+    "~/Library/Application Support/Markd",
+    "~/Library/Preferences/dev.aramudan.markd.Markd.plist",
+    "~/Library/Preferences/org.markd.app.plist",
+  ]
+end
+EOF
+)"
+
+if [[ -n "$CASK_OUTPUT" ]]; then
+    mkdir -p "$(dirname "$CASK_OUTPUT")"
+    printf '%s\n' "$CASK_CONTENT" > "$CASK_OUTPUT"
+    echo "Wrote Homebrew cask to $CASK_OUTPUT"
+fi
+
 if [[ -n "$OUTPUT" ]]; then
     mkdir -p "$(dirname "$OUTPUT")"
     printf '%s\n' "$FORMULA_CONTENT" > "$OUTPUT"
     echo "Wrote Homebrew formula to $OUTPUT"
-else
+elif [[ -z "$CASK_OUTPUT" ]]; then
     printf '%s\n' "$FORMULA_CONTENT"
 fi

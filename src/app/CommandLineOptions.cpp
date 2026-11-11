@@ -13,6 +13,10 @@ void applySingleArgument(const QString& arg, CommandLineOptions& options)
         options.showVersion = true;
         return;
     }
+    if (arg == QLatin1String("--register-default")) {
+        options.registerDefault = true;
+        return;
+    }
     if (arg.startsWith(QLatin1Char('-'))) {
         options.errorMessage = QStringLiteral("Unknown option: %1").arg(arg);
         options.parseSuccess = false;
@@ -57,8 +61,9 @@ QString CommandLineOptions::helpText(const QString& programName)
         "Arguments:\n"
         "  [file.md]          Markdown document to view or edit\n\n"
         "Options:\n"
-        "  -h, --help         Show this help message and exit\n"
-        "  -v, --version      Show version information and exit\n"
+        "  -h, --help              Show this help message and exit\n"
+        "  -v, --version           Show version information and exit\n"
+        "  --register-default      Register Markd as default handler for .md files\n"
     ).arg(programName);
 }
 

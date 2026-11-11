@@ -6,6 +6,7 @@
 struct CommandLineOptions {
     bool showHelp = false;
     bool showVersion = false;
+    bool registerDefault = false;
     QString filePath;
     QStringList filePaths;
     bool hasFile = false;

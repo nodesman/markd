@@ -1,17 +1,47 @@
 #include "app/MarkdApplication.h"
 #include "app/CommandLineOptions.h"
 #include "app/SingleInstanceCoordinator.h"
+#include "core/FileAssociationManager.h"
 #include "ui/MainWindow.h"
 #include "ui/PreviewView.h"
 #include "ui/Theme.h"
 #include <QElapsedTimer>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QTimer>
 #include <iostream>
+#if defined(Q_OS_MACOS)
+#include <mach-o/dyld.h>
+#endif
 #if defined(Q_OS_UNIX)
 #include <unistd.h>
 #endif
 
 namespace {
+
+#if defined(Q_OS_MACOS)
+QString resolveMacosDyldExecutablePath()
+{
+    uint32_t bufSize = 0;
+    _NSGetExecutablePath(nullptr, &bufSize);
+    if (bufSize == 0) return QString();
+    QByteArray raw(static_cast<int>(bufSize), '\0');
+    if (_NSGetExecutablePath(raw.data(), &bufSize) != 0) return QString();
+    return QFileInfo(QString::fromUtf8(raw.constData())).canonicalFilePath();
+}
+#endif
+
+QString resolveExecutableFilePath(const QString& programName)
+{
+#if defined(Q_OS_MACOS)
+    const QString dyldPath = resolveMacosDyldExecutablePath();
+    if (!dyldPath.isEmpty()) return dyldPath;
+#endif
+    const QFileInfo info(programName);
+    if (info.isAbsolute() && info.exists()) return info.canonicalFilePath();
+    const QString found = QStandardPaths::findExecutable(programName);
+    return found.isEmpty() ? info.absoluteFilePath() : found;
+}
 
 QString resolveProgramName(int argc, char* argv[])
 {
@@ -82,6 +112,15 @@ int main(int argc, char* argv[])
     }
     if (options.showVersion) {
         std::cout << qPrintable(CommandLineOptions::versionText());
+        return 0;
+    }
+    if (options.registerDefault) {
+        const QString execPath = resolveExecutableFilePath(programName);
+        if (!FileAssociationManager::registerCurrentPlatformDefault(execPath)) {
+            std::cerr << "Error: Unable to register Markd as default Markdown handler.\n";
+            return 1;
+        }
+        std::cout << "Registered Markd as default Markdown handler (" << qPrintable(execPath) << ").\n";
         return 0;
     }
 
