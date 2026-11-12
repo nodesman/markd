@@ -2277,6 +2277,24 @@ describe('Single-Reveal Contract', () => {
         });
     });
 
+    describe('Bridge heading navigation behavior', () => {
+        it('passes the bridge navigation behavior through to the heading scroll', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown(tallMarkdown);
+            let navigate = null;
+            env.win.qt = { webChannelTransport: {} };
+            env.win.QWebChannel = function (transport, callback) {
+                callback({ objects: { markdBridge: { logMessage: () => {}, bridgeReady: () => {}, navigateToHeading: { connect: (fn) => { navigate = fn; } } } } });
+            };
+            env.win.eval('initQWebChannel()');
+            const used = [];
+            env.win.Element.prototype.scrollIntoView = function (opts) { used.push(opts.behavior); };
+            navigate('late-heading', 'instant');
+            navigate('top', 'smooth');
+            assert.deepEqual(used, ['instant', 'smooth']);
+        });
+    });
+
     describe('Stylesheet reveal rules', () => {
         it('declares no global smooth scroll on html or body', () => {
             const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');

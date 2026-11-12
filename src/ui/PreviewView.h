@@ -59,7 +59,7 @@ public:
     void setMarkdown(const QString& markdown, const QJsonObject& options);
     void scrollToRatio(qreal ratio);
     void loadTemplate();
-    void scrollToHeading(const QString& id);
+    void scrollToHeading(const QString& id, bool instant = false);
     void setTheme(const QString& themeName);
     void setZoomFactor(qreal factor);
     qreal zoomFactor() const { return m_zoomFactor; }

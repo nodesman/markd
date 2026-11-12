@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QTextBrowser>
 #include <QLabel>
+#include <QTextCursor>
 #include <QScrollBar>
 #include <QLineEdit>
 #include <QSignalSpy>
@@ -147,9 +148,11 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
             emit preview.bridge()->documentRendered(2);
             assert(navigateSpy.count() == 1);
             assert(navigateSpy.at(0).at(0).toString() == QStringLiteral("target-anchor"));
+            assert(navigateSpy.at(0).at(1).toString() == QStringLiteral("instant"));
 
             preview.scrollToHeading("root");
             assert(navigateSpy.count() == 2);
+            assert(navigateSpy.at(1).at(1).toString() == QStringLiteral("smooth"));
         });
 
         it("applies a scroll ratio issued before the reveal", [&]() {
@@ -246,6 +249,53 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
             win.setMode(MainWindow::Mode::Preview);
             assert(ratioSpy.count() == 1);
             assert(std::abs(ratioSpy.at(0).at(0).toDouble() - firstRatio) < 0.05);
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("jumps instantly to the editor heading on a mode switch without edits", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_instant_heading_XXXXXX.md");
+            assert(tempFile.open());
+            tempFile.write("# Opening\n\nIntro.\n\n## Late Section\n\nBody.\n");
+            tempFile.close();
+
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow win(tempFile.fileName(), MainWindow::Mode::Edit, true);
+            win.show();
+            app.processEvents();
+            PreviewView* preview = win.previewView();
+            emit preview->bridge()->bridgeInitialized();
+            assert(preview->currentMarkdown() == win.session()->markdown());
+
+            QTextCursor cursor = win.editor()->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            win.editor()->setTextCursor(cursor);
+            QTest::qWait(300); // outline debounce
+
+            QSignalSpy navigateSpy(preview->bridge(), &WebBridge::navigateToHeading);
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            win.setMode(MainWindow::Mode::Preview);
+            assert(renderSpy.count() == 0);
+            assert(navigateSpy.count() == 1);
+            assert(navigateSpy.at(0).at(0).toString() == QStringLiteral("late-section"));
+            assert(navigateSpy.at(0).at(1).toString() == QStringLiteral("instant"));
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("keeps table-of-contents navigation smooth", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_toc_smooth_XXXXXX.md");
+            assert(tempFile.open());
+            tempFile.write("# Opening\n\n## Chapter Two\n\nBody.\n");
+            tempFile.close();
+
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
+            PreviewView* preview = win.previewView();
+            emit preview->bridge()->bridgeInitialized();
+            QTest::qWait(300); // outline debounce
+            QSignalSpy navigateSpy(preview->bridge(), &WebBridge::navigateToHeading);
+            assert(QMetaObject::invokeMethod(&win, "onHeadingActivated", Q_ARG(QString, QStringLiteral("chapter-two"))));
+            assert(navigateSpy.count() == 1);
+            assert(navigateSpy.at(0).at(1).toString() == QStringLiteral("smooth"));
             PreviewView::clearBackendFactoryOverride();
         });
 

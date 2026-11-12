@@ -323,7 +323,7 @@ void PreviewView::applyDeferredRequestsOnFirstReveal()
     if (!m_pendingHeadingId.isEmpty() && m_bridgeReady) {
         const QString target = m_pendingHeadingId;
         m_pendingHeadingId.clear();
-        emit m_bridge->navigateToHeading(target);
+        emit m_bridge->navigateToHeading(target, QStringLiteral("instant"));
     }
     if (!m_lastFindText.isEmpty() && m_backend) {
         m_backend->searchInPage(m_lastFindText, true, m_lastFindCaseSensitive);
@@ -487,10 +487,10 @@ void PreviewView::scrollToRatio(qreal ratio)
     m_pendingOptions[QStringLiteral("scrollRatio")] = ratio;
 }
 
-void PreviewView::scrollToHeading(const QString& id)
+void PreviewView::scrollToHeading(const QString& id, bool instant)
 {
     if (m_bridgeReady) {
-        emit m_bridge->navigateToHeading(id);
+        emit m_bridge->navigateToHeading(id, instant ? QStringLiteral("instant") : QStringLiteral("smooth"));
         return;
     }
     m_pendingHeadingId = id;

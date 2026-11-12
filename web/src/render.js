@@ -66,9 +66,9 @@ function initQWebChannel() {
                     });
                 }
                 if (window.markdBridge.navigateToHeading && typeof window.markdBridge.navigateToHeading.connect === 'function') {
-                    window.markdBridge.navigateToHeading.connect(function(headingId) {
+                    window.markdBridge.navigateToHeading.connect(function(headingId, behavior) {
                         if (typeof scrollToHeading === 'function') {
-                            scrollToHeading(headingId);
+                            scrollToHeading(headingId, behavior);
                         }
                     });
                 }

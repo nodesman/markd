@@ -994,7 +994,7 @@ void MainWindow::syncEditorToPreview()
         return;
     }
     if (!targetHeadingId.isEmpty()) {
-        m_previewView->scrollToHeading(targetHeadingId);
+        m_previewView->scrollToHeading(targetHeadingId, /*instant=*/true);
         return;
     }
     if (scrollRatio > 0.0) {
