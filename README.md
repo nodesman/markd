@@ -5,8 +5,8 @@
 <h1 align="center">Markd</h1>
 
 <p align="center">
-  <strong>Fast, native C++20 &amp; Qt 6 Markdown reader and editor for macOS, Windows, and Linux.</strong><br/>
-  Opens technical specs, RFCs, equations, and architecture diagrams in under <strong>180 ms</strong> — zero Electron, zero cloud accounts, zero telemetry.
+  <strong>A fast, native Markdown reader and editor for the Mac.</strong><br/>
+  Type <code>markd README.md</code> and read. No Electron, no account.
 </p>
 
 <p align="center">
@@ -26,15 +26,15 @@
 
 ## Features
 
-* **Instant Cold Start (`< 180 ms`):** Opens `.md` documents immediately from Finder, Explorer, or your terminal (`markd README.md`) with a native two-stage rendering pipeline — no multi-second Chromium splash wait.
-* **Dual `Preview` & `Edit` Modes (`Cmd+E` / `Ctrl+E`):** Toggle effortlessly between distraction-free Obsidian-dark editorial typography and a clean, line-numbered monospace Markdown editor.
-* **100% Offline Math & Diagrams:** Built-in **KaTeX** typesetting (`$...$` and `$$...$$` equations) and **Mermaid** flowcharts, sequence diagrams, and state machines with interactive pan and `0.2x–5.0x` zoom controls — zero network or CDN calls.
-* **Code Presentation Cards:** **Highlight.js** syntax highlighting wrapped in structured code cards with language badges and one-click Copy-to-Clipboard.
-* **Collapsible Table of Contents (`Cmd+\`) & Live Telemetry:** Synchronized document outline sidebar alongside a subtle bottom status bar displaying word count, reading time, active heading (`§`), character encoding, and zoom scale.
-* **Live Disk Hot-Reload:** `QFileSystemWatcher` automatically re-renders open files the instant your external IDE, CLI script, or coding agent writes to disk while preserving your scroll position.
-* **Single-Instance Multi-Window Workflow (`Cmd+\``):** Opening files from the shell or file manager reuses the running process over a `< 60 ms` local IPC socket, raising already-open documents instead of spawning duplicate processes or browser tabs.
-* **In-Page Find & Rich Export:** Floating `Cmd+F` search bar across both Preview and Edit modes, **Export to Standalone HTML** (`Cmd+Shift+E`), **Print / Save to PDF** (`Cmd+P`), and **Copy as Rich HTML** (`Cmd+Shift+C`).
-* **Automatic `.md` File Association:** Native OS file-type registration (`markd --register-default` or `File -> Make Default for Markdown`) binds `.md`, `.markdown`, `.mdown`, `.mkd`, and `markd://open?path=...` links across macOS LaunchServices, Windows Registry, and Linux `xdg-mime`.
+* **Opens fast.** Run `markd README.md` in your terminal, or double-click a file in Finder. The document opens in its own window.
+* **Read or edit.** Switch between the formatted page and the plain text with ⌃E.
+* **Math and diagrams.** Equations (KaTeX) and diagrams (Mermaid) appear as you'd expect, even offline. You can zoom and pan around large diagrams.
+* **Clear code.** Code blocks are colored by language and have a Copy button.
+* **Find your way.** An outline of your headings sits in a sidebar (⌃\\). The status bar shows the word count, reading time and the section you're in.
+* **Stays current.** When another program changes the file, Markd reloads it and keeps your place.
+* **One app, many windows.** Each file gets its own window. Open a file that's already open and Markd brings its window to the front.
+* **Find, share, print.** Search the page (⌘F), copy it as rich text for email or docs (⌃⌥C), save it as a single HTML file (⇧⌃E), or print it (⌘P).
+* **Make it the default.** Run `markd --register-default` to open `.md` files with Markd.
 
 ---
 
