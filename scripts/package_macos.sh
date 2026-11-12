@@ -292,7 +292,12 @@ DMG_NAME="Markd-${VERSION}-macOS.dmg"
 TAR_NAME="Markd-${VERSION}-darwin-arm64.tar.gz"
 BIN_NAME="markd-darwin-arm64"
 
-hdiutil create -volname "Markd ${VERSION}" -srcfolder "$APP_BUNDLE" -ov -format UDZO "$DIST_DIR/$DMG_NAME" >/dev/null
+# The disk image holds Markd.app next to an Applications shortcut, so users can drag it across to install.
+DMG_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/markd-dmg.XXXXXX")"
+cp -R "$APP_BUNDLE" "$DMG_STAGING/Markd.app"
+ln -s /Applications "$DMG_STAGING/Applications"
+hdiutil create -volname "Markd ${VERSION}" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DIST_DIR/$DMG_NAME" >/dev/null
+rm -rf "$DMG_STAGING"
 tar -czf "$DIST_DIR/$TAR_NAME" -C "$DIST_DIR" Markd.app
 cp "$APP_BIN" "$DIST_DIR/$BIN_NAME"
 chmod 0755 "$DIST_DIR/$BIN_NAME"
