@@ -42,41 +42,13 @@
 
 ## Installation
 
-### macOS (Homebrew — Installs `/Applications/Markd.app`, `markd` CLI & `.md` Association)
+### macOS (Apple Silicon) with Homebrew
 ```sh
-brew install --cask nodesman/markd/markd
+brew install nodesman/markd/markd
 ```
-*(Or via Homebrew Formula: `brew install nodesman/markd/markd && markd --register-default`)*
+Upgrade with `brew update && brew upgrade markd`. Downloads (`.dmg`, `.tar.gz`) are on the [releases page](https://markd.aramudan.dev/releases).
 
-### POSIX One-Liner (macOS & Linux)
-```sh
-curl -fsSL https://markd.aramudan.dev/install.sh | sh
-markd --register-default
-```
-
-### Ubuntu / Debian (`APT`)
-```sh
-sudo apt-get update && sudo apt-get install -y markd
-```
-
-### Windows (PowerShell)
-```powershell
-irm https://markd.aramudan.dev/install.ps1 | iex
-```
-
----
-
-## Systems Architecture
-
-* **Two-Stage Cold-Start Pipeline:**
-  * **Stage 1 (`InstantPreviewSurface`):** Native `QTextBrowser` paints styled GitHub-flavored Markdown, centered `760px` editorial margins, and heading anchors in `< 120 ms` p95 before WebEngine loads.
-  * **Stage 2 (Deferred `QLibrary` Hydration):** `libmarkd_webengine` (`QtWebEngineWidgets` + `QtWebChannel`) loads dynamically after the first native frame paints and transfers scroll ratio, zoom factor, Find-in-Page state, and keyboard focus without losing reading position.
-* **Fast-Path CLI & Single-Instance IPC (`QLocalServer`):**
-  * `--version`, `--help`, `--register-default`, and secondary file-open invocations execute before `QApplication` construction, forwarding paths over a per-user local socket in `< 60 ms` p95.
-* **Hardened Offline DOM Pipeline:**
-  * Pre- and post-Mermaid **DOMPurify** sanitization (`foreignObject` HTML label support with strict CSS positioning/`@import` and script scrubbing) running inside an off-the-record `NoCache` profile.
-* **Engineering & Verification Standards:**
-  * Modular C++20 coordinators (`<= 200` lines on strict modules), `100/100` Object Calisthenics enforcement, `20` headless `CTest` suites compiled with `-UNDEBUG`, and `96` JSDOM rendering specs at `100%` `c8` branch and line coverage.
+Windows, Linux and npm packages are in development.
 
 ---
 
@@ -122,7 +94,7 @@ task package-macos  # Build self-contained arm64 Markd.app, .dmg, and .tar.gz
 │   ├── bridge/          # Bidirectional QWebChannel C++ <-> DOM contract
 │   ├── core/            # DocumentSession, live reload, file association, clipboard, updater
 │   ├── parser/          # Markdown heading & Table-of-Contents slug parser
-│   └── ui/              # InstantPreviewSurface, PreviewView, EditorView, TOC, platform chrome
+│   └── ui/              # PreviewView, EditorView, TOC, platform chrome
 ├── web/                 # Offline Markdown-It + KaTeX + Mermaid renderer & 100%-covered test suite
 ├── resources/           # Obsidian QSS theme, app icons, showcase document, Qt resource manifests
 ├── scripts/             # Startup latency benchmarks, icon pipeline, Homebrew & macOS bundlers
