@@ -94,10 +94,16 @@ tasks:
         '
 
   benchmark:
-    desc: Verify p95 startup latency budgets (--version <25ms, IPC <60ms, instant paint <120ms, prose hydration <450ms)
+    desc: Verify startup budgets (CLI, IPC, window frame, content reveal, warm open, mode switch) plus per-phase limits and drift against scripts/startup_baseline.json
     deps: [build]
     cmds:
       - bash scripts/benchmark_startup.sh
+
+  benchmark-baseline:
+    desc: Re-record scripts/startup_baseline.json from a fresh 20-iteration run (commit it deliberately)
+    deps: [build]
+    cmds:
+      - bash scripts/benchmark_startup.sh --record-baseline
 
   gate:
     desc: Run full 4-tier quality gate (tests + coverage + strict Object Calisthenics + startup latency budgets)

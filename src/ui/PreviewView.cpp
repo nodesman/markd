@@ -1,6 +1,7 @@
 #include "ui/PreviewView.h"
 #include "ui/WebEngineBackend.h"
 #include "core/DocumentSession.h"
+#include "core/StartupPhaseTrace.h"
 #include <QApplication>
 #include <QChildEvent>
 #include <QCoreApplication>
@@ -188,6 +189,7 @@ QWebEngineView* PreviewView::webView() const
 void PreviewView::wireBridgeSignals()
 {
     connect(m_bridge, &WebBridge::bridgeInitialized, this, [this]() {
+        StartupPhaseTrace::mark("bridge_ready");
         m_bridgeReady = true;
         emit bridgeInitialized();
         if (m_session && !m_session->theme().isEmpty()) {
@@ -222,6 +224,7 @@ void PreviewView::wireBridgeSignals()
         emit activeHeadingChanged(id);
     });
     connect(m_bridge, &WebBridge::documentRendered, this, [this](int headingCount) {
+        StartupPhaseTrace::mark("content_revealed");
         m_renderedMarkdown = m_currentMarkdown;
         applyDeferredRequestsOnFirstReveal();
         emit documentRendered(headingCount);
@@ -277,9 +280,16 @@ void PreviewView::ensureWebEngineInitialized()
 {
     if (m_backend || m_loadFailureLabel) return;
     CreateWebEngineBackendFn factory = resolveBackendFactory();
+    StartupPhaseTrace::mark("plugin_loaded");
     if (!factory) {
         showLoadFailure(backendFailureReason());
         return;
+    }
+    // Tracing only: create the shared profile first so its cost is timed apart; the backend reuses it.
+    SharedWebEngineProfileFn profileFactory = StartupPhaseTrace::enabled() ? resolveProfileFactory() : nullptr;
+    if (profileFactory) {
+        profileFactory();
+        StartupPhaseTrace::mark("profile_created");
     }
 
     m_backend = factory(m_channel, this);
@@ -292,6 +302,7 @@ void PreviewView::ensureWebEngineInitialized()
     connect(m_backend, &WebEngineBackend::searchMatchReady, this, &PreviewView::findResult);
     connect(m_backend, &WebEngineBackend::pdfExportCompleted, this, &PreviewView::pdfPrintingFinished);
     connect(m_backend, &WebEngineBackend::pageLoadFinished, this, [this](bool ok) {
+        StartupPhaseTrace::mark("template_loaded");
         m_pageLoaded = ok;
         if (!ok) m_bridgeReady = false;
         installWebViewEventFilters();

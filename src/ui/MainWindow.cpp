@@ -1,4 +1,5 @@
 #include "ui/MainWindow.h"
+#include "core/StartupPhaseTrace.h"
 #include "ui/AboutDialog.h"
 #include "ui/UpdateDialog.h"
 #include "core/Converter.h"
@@ -1026,6 +1027,7 @@ qreal MainWindow::determineScrollRatio(const QString& targetHeadingId) const
 void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
+    StartupPhaseTrace::mark("window_shown");
     if (m_previewView) {
         m_previewView->schedulePostShowHydration();
     }

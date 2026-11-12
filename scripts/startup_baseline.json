@@ -1,0 +1,54 @@
+{
+  "rule": "limit_ms / budget_ms = 1.5 x measured p95, rounded up to the next 5 ms; drift warning at > 25% above median_ms",
+  "recorded_with": {
+    "iterations": 20,
+    "qpa": "offscreen"
+  },
+  "phases": {
+    "main_entry": {
+      "median_ms": 11.2,
+      "p95_ms": 11.9,
+      "limit_ms": 20.0
+    },
+    "window_shown": {
+      "median_ms": 74.0,
+      "p95_ms": 76,
+      "limit_ms": 115.0
+    },
+    "plugin_loaded": {
+      "median_ms": 14.0,
+      "p95_ms": 14,
+      "limit_ms": 25.0
+    },
+    "profile_created": {
+      "median_ms": 94.0,
+      "p95_ms": 97,
+      "limit_ms": 150.0
+    },
+    "template_loaded": {
+      "median_ms": 100.5,
+      "p95_ms": 103,
+      "limit_ms": 155.0
+    },
+    "bridge_ready": {
+      "median_ms": 1.0,
+      "p95_ms": 2,
+      "limit_ms": 5.0
+    },
+    "content_revealed": {
+      "median_ms": 34.0,
+      "p95_ms": 37,
+      "limit_ms": 60.0
+    }
+  },
+  "gates": {
+    "warm_open": {
+      "p95_ms": 111.2,
+      "budget_ms": 170.0
+    },
+    "mode_switch": {
+      "p95_ms": 49.0,
+      "budget_ms": 75.0
+    }
+  }
+}

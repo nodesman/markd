@@ -10,6 +10,10 @@
 #include <QJsonObject>
 #include <QTextBrowser>
 #include <QLabel>
+#include "core/StartupPhaseTrace.h"
+#include <QRegularExpression>
+#include <QProcessEnvironment>
+#include <QProcess>
 #include <QTextCursor>
 #include <QScrollBar>
 #include <QLineEdit>
@@ -326,6 +330,83 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
             assert(siblingInput->hasFocus());
             assert(preview->hasPreviewFocus());
             PreviewView::clearBackendFactoryOverride();
+        });
+    });
+
+    describe("Startup phase tracing", [&]() {
+        const QStringList lockedPhases = {
+            "main_entry", "window_shown", "plugin_loaded", "profile_created",
+            "template_loaded", "bridge_ready", "content_revealed"};
+        QTemporaryDir isolation;
+        assert(isolation.isValid());
+        const QString sampleDoc = isolation.filePath("phases.md");
+        {
+            QFile doc(sampleDoc);
+            assert(doc.open(QIODevice::WriteOnly));
+            doc.write("# Phase Trace\n\nBody text.\n\n## Second\n\nMore.\n");
+        }
+        // Runs the built markd binary in isolation; the child writes its coverage profile elsewhere.
+        auto runMarkd = [&](const QString& benchMode, bool tracing) {
+            QProcess proc;
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.insert("HOME", isolation.filePath("home"));
+            env.insert("TMPDIR", isolation.filePath("tmp"));
+            env.insert("QT_QPA_PLATFORM", "offscreen");
+            env.insert("MARKD_STARTUP_BENCHMARK", benchMode);
+            env.insert("LLVM_PROFILE_FILE", isolation.filePath("child-%p.profraw"));
+            env.remove("MARKD_STARTUP_PHASES");
+            if (tracing) env.insert("MARKD_STARTUP_PHASES", "1");
+            QDir().mkpath(isolation.filePath("home"));
+            QDir().mkpath(isolation.filePath("tmp"));
+            proc.setProcessEnvironment(env);
+            proc.start(QCoreApplication::applicationDirPath() + "/markd", {sampleDoc});
+            assert(proc.waitForFinished(30000));
+            assert(proc.exitCode() == 0);
+            return std::make_pair(QString::fromUtf8(proc.readAllStandardOutput()), QString::fromUtf8(proc.readAllStandardError()));
+        };
+        const auto traced = runMarkd("2", true);
+        const QStringList markLines = traced.second.split('\n').filter(QRegularExpression("^MARKD_PHASE "));
+
+        it("prints startup phase marks only when phase tracing is enabled", [&]() {
+            assert(!markLines.isEmpty());
+            const auto untraced = runMarkd("2", false);
+            assert(!untraced.second.contains("MARKD_PHASE"));
+        });
+
+        it("prints the seven locked phase names in the locked format", [&]() {
+            const QRegularExpression format("^MARKD_PHASE (main_entry|window_shown|plugin_loaded|profile_created|template_loaded|bridge_ready|content_revealed) \\d{13}$");
+            for (const QString& line : markLines) {
+                assert(format.match(line).hasMatch());
+            }
+            for (const QString& phase : lockedPhases) {
+                assert(!markLines.filter(QRegularExpression("^MARKD_PHASE " + phase + " ")).isEmpty());
+            }
+        });
+
+        it("records phase marks in launch order", [&]() {
+            qint64 previous = 0;
+            for (const QString& phase : lockedPhases) {
+                const QString first = markLines.filter(QRegularExpression("^MARKD_PHASE " + phase + " ")).first();
+                const qint64 at = first.section(' ', 2).toLongLong();
+                assert(at >= previous);
+                previous = at;
+            }
+        });
+
+        it("prints the mode switch time in benchmark mode three", [&]() {
+            const auto switched = runMarkd("3", false);
+            const QRegularExpressionMatch m = QRegularExpression("MARKD_BENCH_MODE_SWITCH_MS=(\\d+)").match(switched.first);
+            assert(m.hasMatch());
+            assert(m.captured(1).toInt() >= 0);
+        });
+
+        it("formats a phase mark as name and epoch milliseconds", [&]() {
+            assert(StartupPhaseTrace::formatMark("bridge_ready", 1794482513922) == QByteArray("MARKD_PHASE bridge_ready 1794482513922\n"));
+            qputenv("MARKD_STARTUP_PHASES", "1");
+            assert(StartupPhaseTrace::enabled());
+            StartupPhaseTrace::mark("bridge_ready");
+            qunsetenv("MARKD_STARTUP_PHASES");
+            assert(!StartupPhaseTrace::enabled());
         });
     });
 

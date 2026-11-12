@@ -42,6 +42,7 @@ set(COMMON_SOURCES
     src/app/SingleInstanceCoordinator.h
     src/app/SingleInstanceCoordinator.cpp
     src/core/Version.h
+    src/core/StartupPhaseTrace.h
     src/core/FileAssociationManager.h
     src/core/FileAssociationManager.cpp
     src/core/ProvenanceDetector.h
