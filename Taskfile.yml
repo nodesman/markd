@@ -75,8 +75,6 @@ tasks:
             "src/app/SingleInstanceCoordinator.cpp",
             "src/app/MarkdApplication.h",
             "src/app/MarkdApplication.cpp",
-            "src/ui/InstantPreviewSurface.h",
-            "src/ui/InstantPreviewSurface.cpp",
             "src/ui/WebEngineBackend.h",
             "src/ui/WebEngineBackend.cpp"
           ];

@@ -432,14 +432,17 @@ async function executeRenderMarkdown(markdownText, options) {
     // 7. Set up scroll spy
     setupScrollSpy();
 
-    // 8. Notify C++ bridge of document render completion
+    // 8. Resolve the post-render scroll position first (instant), so the reveal lands in place
+    resolvePostRenderScroll(options, prevScrollY);
+
+    // 9. Reveal the content in the same frame as the DOM and scroll changes (Task 8.12)
+    document.body.classList.remove('is-hydrating');
+
+    // 10. Notify C++ bridge of document render completion
     var headings = contentEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]');
     if (window.markdBridge && typeof window.markdBridge.onDocumentRendered === 'function') {
         window.markdBridge.onDocumentRendered(headings.length);
     }
-
-    // Resolve post-render scroll position (Task 12 Bidirectional Bridge)
-    resolvePostRenderScroll(options, prevScrollY);
 }
 
 function replaceWithMermaidErrorCard(mDiv, rawDiagramCode, err) {
@@ -569,7 +572,7 @@ function setupScrollSpy() {
 var lastScrolledHeadingId = null;
 var lastScrollTimestamp = 0;
 
-function scrollToHeading(id) {
+function scrollToHeading(id, behavior) {
     var now = Date.now();
     if (id === lastScrolledHeadingId && now - lastScrollTimestamp < 150) {
         return;
@@ -579,7 +582,8 @@ function scrollToHeading(id) {
 
     var el = document.getElementById(id);
     if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Smooth for user navigation (TOC, anchors); callers restoring a position pass 'instant'
+        el.scrollIntoView({ behavior: behavior || 'smooth', block: 'start' });
     }
 }
 
@@ -587,7 +591,7 @@ function scrollToRatio(ratio) {
     if (typeof ratio !== 'number' || isNaN(ratio)) return;
     var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     var clampedRatio = Math.max(0, Math.min(1, ratio));
-    window.scrollTo({ top: clampedRatio * maxScroll, behavior: 'smooth' });
+    window.scrollTo({ top: clampedRatio * maxScroll, behavior: 'instant' });
 }
 
 function resolvePostRenderScroll(options, prevScrollY) {
@@ -596,7 +600,7 @@ function resolvePostRenderScroll(options, prevScrollY) {
         return;
     }
     if (options && options.targetHeading) {
-        scrollToHeading(options.targetHeading);
+        scrollToHeading(options.targetHeading, 'instant');
         return;
     }
     if (options && typeof options.scrollRatio === 'number') {

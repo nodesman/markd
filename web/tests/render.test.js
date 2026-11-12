@@ -13,21 +13,24 @@ function createRenderEnvironment(options = {}) {
     const webDir = path.resolve(__dirname, '..');
     const obsidianCss = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
     const katexCss = fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.css'), 'utf8');
+    // Mirror the live page: its inline <style> and <body> come from template.html itself, so they cannot drift.
+    const template = fs.readFileSync(path.join(webDir, 'template.html'), 'utf8');
+    const templateStyle = template.match(/<style>[\s\S]*?<\/style>/)[0];
+    const templateBody = template.match(/<body[\s\S]*?<\/body>/)[0];
 
     const html = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    ${templateStyle}
     <style>${obsidianCss}</style>
     <style>${katexCss}</style>
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles/obsidian.css">
     <link rel="stylesheet" href="vendor/highlight/github-dark.min.css">
 </head>
-<body style="background-color: #050505;">
-    <article id="content"></article>
-</body>
+${templateBody}
 </html>`;
 
     const dom = new JSDOM(html, {
@@ -1732,7 +1735,7 @@ describe('render.js Native Node.js Test Suite', () => {
 
             assert.ok(dispatchedScroll !== null);
             assert.equal(typeof dispatchedScroll.top, 'number');
-            assert.equal(dispatchedScroll.behavior, 'smooth');
+            assert.equal(dispatchedScroll.behavior, 'instant');
         });
 
         it('handles scrollToRatio invalid inputs and boundary clamping', async () => {
@@ -2171,4 +2174,122 @@ describe('render.js Native Node.js Test Suite', () => {
     });
 });
 
+describe('Single-Reveal Contract', () => {
+    const webDir = path.resolve(__dirname, '..');
+    const tallMarkdown = '# Top\n\n' + Array.from({ length: 40 }, (_, i) => `Paragraph ${i}.`).join('\n\n') + '\n\n## Late Heading\n\nEnd.';
 
+    describe('Content visibility before and after render', () => {
+        it('starts the live page in the hydrating state', () => {
+            const env = createRenderEnvironment();
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), true);
+        });
+
+        it('reveals content by clearing the hydrating state after render', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('# Title\n\ntext');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+        });
+
+        it('clears the hydrating state after an empty render', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+        });
+
+        it('never restores the hydrating state on live re-renders', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('# First');
+            await env.win.renderMarkdown('# Second');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+            assert.ok(env.doc.getElementById('content').textContent.includes('Second'));
+        });
+    });
+
+    describe('Reveal ordering', () => {
+        it('resolves scroll position before clearing the hydrating state', async () => {
+            const env = createRenderEnvironment();
+            let hydratingAtScroll = null;
+            env.win.scrollTo = () => { hydratingAtScroll = env.doc.body.classList.contains('is-hydrating'); };
+            await env.win.renderMarkdown('# Ordered');
+            assert.equal(hydratingAtScroll, true);
+        });
+
+        it('notifies the bridge after the hydrating state clears', async () => {
+            const env = createRenderEnvironment();
+            let hydratingAtNotify = null;
+            env.win.markdBridge = { onDocumentRendered: () => { hydratingAtNotify = env.doc.body.classList.contains('is-hydrating'); } };
+            await env.win.renderMarkdown('# Notified');
+            assert.equal(hydratingAtNotify, false);
+        });
+
+        it('notifies the bridge before renderDocument resolves', async () => {
+            const env = createRenderEnvironment();
+            let reportedHeadings = -1;
+            env.win.markdBridge = { onDocumentRendered: (count) => { reportedHeadings = count; } };
+            await env.win.renderMarkdown('# One\n\n## Two');
+            assert.equal(reportedHeadings, 2);
+        });
+    });
+
+    describe('Scroll restoration without animation', () => {
+        it('opens a document at the top with no scroll options', async () => {
+            const env = createRenderEnvironment();
+            const calls = [];
+            env.win.scrollTo = (...args) => { calls.push(args); };
+            await env.win.renderMarkdown(tallMarkdown);
+            assert.deepEqual(calls, [[0, 0]]);
+        });
+
+        it('restores scroll ratio without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            let dispatched = null;
+            env.win.scrollTo = (opts) => { dispatched = opts; };
+            await env.win.renderMarkdown(tallMarkdown, { scrollRatio: 0.4 });
+            assert.equal(dispatched.behavior, 'instant');
+            env.win.scrollToRatio(0.9);
+            assert.equal(dispatched.behavior, 'instant');
+        });
+
+        it('restores preserved scroll offset without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            const calls = [];
+            env.win.scrollTo = (...args) => { calls.push(args); };
+            env.win.scrollY = 240;
+            await env.win.renderMarkdown(tallMarkdown, { preserveScroll: true });
+            assert.deepEqual(calls, [[0, 240]]);
+        });
+
+        it('jumps to targetHeading option without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            let used = null;
+            env.win.Element.prototype.scrollIntoView = function (opts) { used = { id: this.id, behavior: opts.behavior }; };
+            await env.win.renderMarkdown(tallMarkdown, { targetHeading: 'late-heading' });
+            assert.deepEqual(used, { id: 'late-heading', behavior: 'instant' });
+        });
+
+        it('keeps smooth scrolling for heading navigation', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown(tallMarkdown);
+            let used = null;
+            env.win.Element.prototype.scrollIntoView = function (opts) { used = opts.behavior; };
+            env.win.scrollToHeading('late-heading');
+            assert.equal(used, 'smooth');
+        });
+    });
+
+    describe('Stylesheet reveal rules', () => {
+        it('declares no global smooth scroll on html or body', () => {
+            const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+            assert.equal(/scroll-behavior\s*:\s*smooth/.test(css), false);
+        });
+
+        it('keeps the hydrating rule inside the live template only', () => {
+            const template = fs.readFileSync(path.join(webDir, 'template.html'), 'utf8');
+            const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+            assert.match(template, /<body class="is-hydrating">/);
+            assert.match(template, /body\.is-hydrating #content\s*\{\s*opacity:\s*0;\s*\}/);
+            assert.equal(css.includes('is-hydrating'), false);
+            assert.equal(/#content[^{]*\{[^}]*opacity\s*:\s*0/.test(css), false);
+        });
+    });
+});

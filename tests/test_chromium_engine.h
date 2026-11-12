@@ -12,6 +12,38 @@
 #include "Zinsser.h"
 #include "app/MarkdApplication.h"
 #include "ui/PreviewView.h"
+#include "ui/MainWindow.h"
+#include "core/Converter.h"
+#include <QElapsedTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTemporaryFile>
+#include <QWebEnginePage>
+#include <QWebEngineView>
+
+// Runs JavaScript in a real Chromium page and returns its JSON result, polling the event loop.
+inline QJsonObject evaluateJsonInPage(QWebEnginePage* page, const QString& expression)
+{
+    QString json;
+    bool done = false;
+    page->runJavaScript(QStringLiteral("JSON.stringify(%1)").arg(expression), [&](const QVariant& value) {
+        json = value.toString();
+        done = true;
+    });
+    QElapsedTimer timer;
+    timer.start();
+    while (!done && timer.elapsed() < 10000) QTest::qWait(10);
+    assert(done);
+    return QJsonDocument::fromJson(json.toUtf8()).object();
+}
+
+inline const char* kRevealProbe =
+    "{ opacity: getComputedStyle(document.getElementById('content')).opacity,"
+    "  hydrating: document.body.classList.contains('is-hydrating'),"
+    "  scrollHeight: document.documentElement.scrollHeight,"
+    "  innerHeight: window.innerHeight,"
+    "  scrollY: window.scrollY,"
+    "  text: document.getElementById('content').textContent.slice(0, 200) }";
 
 inline void testNativeChromiumModernization(MarkdApplication& app) {
     using Zinsser::describe;
@@ -75,6 +107,52 @@ inline void testNativeChromiumModernization(MarkdApplication& app) {
             assert(QFile::exists(pdfPath));
             assert(QFileInfo(pdfPath).size() > 0);
             QFile::remove(pdfPath);
+        });
+    });
+
+    describe("Real Chromium single reveal", [&]() {
+        it("opens a long file at the top with its content visible", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_e2e_top_XXXXXX.md");
+            assert(tempFile.open());
+            QString markdown = "# E2E Top Marker\n\n";
+            for (int i = 0; i < 200; ++i) {
+                markdown += QString("Paragraph %1 makes the page much taller than the window.\n\n").arg(i);
+            }
+            tempFile.write(markdown.toUtf8());
+            tempFile.close();
+
+            MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
+            win.resize(900, 600);
+            QSignalSpy renderedSpy(win.previewView(), &PreviewView::documentRendered);
+            win.show();
+            assert(renderedSpy.count() > 0 || renderedSpy.wait(15000));
+            QTest::qWait(400); // longer than any smooth-scroll animation would take
+
+            const QJsonObject state = evaluateJsonInPage(win.previewView()->webView()->page(), kRevealProbe);
+            assert(state.value("opacity").toString() == QStringLiteral("1"));
+            assert(!state.value("hydrating").toBool());
+            assert(state.value("scrollHeight").toInt() > state.value("innerHeight").toInt());
+            assert(state.value("scrollY").toDouble() == 0.0);
+            assert(state.value("text").toString().contains("E2E Top Marker"));
+        });
+
+        it("exports standalone html with visible content", [&]() {
+            const QString markdown = QStringLiteral("# Export Marker\n\nVisible exported prose.\n");
+            const QStringList exports = {
+                Converter::toFullHtmlDocument(markdown),
+                Converter::bundleStandaloneHtml(Converter::toHtmlFragment(markdown), QStringLiteral("Export Test")),
+            };
+            for (const QString& html : exports) {
+                QWebEnginePage page(PreviewView::sharedPreviewProfile());
+                QSignalSpy loadSpy(&page, &QWebEnginePage::loadFinished);
+                page.setHtml(html, QUrl(QStringLiteral("qrc:/web/")));
+                assert(loadSpy.wait(15000));
+                const QJsonObject state = evaluateJsonInPage(&page,
+                    QStringLiteral("{ opacity: getComputedStyle(document.getElementById('content')).opacity,"
+                                   "  text: document.getElementById('content').textContent }"));
+                assert(state.value("opacity").toString() == QStringLiteral("1"));
+                assert(state.value("text").toString().contains("Visible exported prose"));
+            }
         });
     });
 }

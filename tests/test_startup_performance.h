@@ -7,6 +7,11 @@
 #include <QFileOpenEvent>
 #include <QLocalServer>
 #include <QPalette>
+#include <QJsonObject>
+#include <QTextBrowser>
+#include <QLabel>
+#include <QScrollBar>
+#include <QLineEdit>
 #include <QSignalSpy>
 #include <QStackedLayout>
 #include <QTemporaryDir>
@@ -28,7 +33,7 @@
 #include "core/DocumentSession.h"
 #include "core/TelemetryEngine.h"
 #include "parser/TocParser.h"
-#include "ui/InstantPreviewSurface.h"
+#include "FakeWebEngineBackend.h"
 #include "ui/MainWindow.h"
 #include "ui/PreviewView.h"
 
@@ -36,176 +41,245 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
     using Zinsser::describe;
     using Zinsser::it;
 
-    describe("Instant cold-start surface, deferred web engine hydration and startup coalescing", [&]() {
-        it("paints obsidian instant preview surface on show while deferring web engine view allocation", [&]() {
-            QTemporaryFile tempFile(QDir::tempPath() + "/markd_instant_surface_XXXXXX.md");
+    describe("Single-reveal preview hydration", [&]() {
+        it("allocates no draft surface in the preview view", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_single_reveal_XXXXXX.md");
             assert(tempFile.open());
-            tempFile.write("# Instant Title\n\nBody paragraph with **strong** prose.\n\n## Second Section\n\nDetails.\n");
+            tempFile.write("# Reveal Title\n\nBody paragraph with **strong** prose.\n");
             tempFile.close();
 
             MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
-            assert(win.viewportStack() != nullptr);
-            assert(win.viewportStack()->count() == 2);
-            assert(win.previewView() != nullptr);
-            assert(win.previewView()->bridge() != nullptr);
-            assert(win.previewView()->channel() != nullptr);
-            assert(!win.previewView()->isWebEngineInitialized());
-            assert(win.previewView()->isShowingInstantSurface());
-            assert(win.findChild<QWebEngineView*>("previewView") == nullptr);
-
-            InstantPreviewSurface* instant = win.previewView()->instantSurface();
-            assert(instant != nullptr);
-            assert(instant->palette().color(QPalette::Base) == QColor("#050505"));
-            assert(instant->palette().color(QPalette::Text) == QColor("#f0f6fc"));
-            assert(instant->toPlainText().contains("Instant Title"));
-
-            win.show();
-            assert(!win.previewView()->isWebEngineInitialized());
-            assert(win.findChild<QWebEngineView*>("previewView") == nullptr);
+            PreviewView* preview = win.previewView();
+            assert(preview != nullptr);
+            assert(preview->findChild<QTextBrowser*>() == nullptr);
+            assert(preview->palette().color(QPalette::Window) == QColor("#050505"));
+            assert(preview->autoFillBackground());
+            assert(!preview->isWebEngineInitialized());
+            assert(!preview->isRevealed());
         });
 
-        it("layers web engine beneath instant surface in stack-all layout and swaps on document rendered", [&]() {
-            QTemporaryFile tempFile(QDir::tempPath() + "/markd_stack_all_XXXXXX.md");
+        it("starts the web engine when the preview first shows", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_single_reveal_show_XXXXXX.md");
             assert(tempFile.open());
-            tempFile.write("# Layered Heading\n\nParagraph text.\n");
+            tempFile.write("# Shown Heading\n\nParagraph text.\n");
             tempFile.close();
 
             MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
+            PreviewView* preview = win.previewView();
+            assert(!preview->isWebEngineInitialized());
             win.show();
             app.processEvents();
-
-            PreviewView* preview = win.previewView();
             assert(preview->isWebEngineInitialized());
             assert(win.findChild<QWebEngineView*>("previewView") != nullptr);
-
             auto* stackLayout = qobject_cast<QStackedLayout*>(preview->layout());
             assert(stackLayout != nullptr);
-            assert(stackLayout->stackingMode() == QStackedLayout::StackAll);
-            assert(preview->isShowingInstantSurface());
-            assert(!preview->instantSurface()->isHidden());
-
-            emit preview->bridge()->documentRendered(1);
-            app.processEvents();
-
-            assert(!preview->isShowingInstantSurface());
-            assert(preview->instantSurface()->isHidden());
+            assert(stackLayout->count() == 1);
         });
 
-        it("preserves scroll ratio zoom factor find query and active focus across web engine hydration", [&]() {
-            QTemporaryFile tempFile(QDir::tempPath() + "/markd_hydration_state_XXXXXX.md");
+        it("renders the loaded document once the bridge initializes", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_single_reveal_render_XXXXXX.md");
             assert(tempFile.open());
-            QString markdown = "# Hydration Root\n\nneedle_target first match\n\n";
-            for (int i = 0; i < 80; ++i) {
-                markdown += QString("Paragraph filler line %1 for vertical scroll testing.\n\n").arg(i);
+            tempFile.write("# Rendered Once\n\nBody.\n");
+            tempFile.close();
+
+            MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
+            PreviewView* preview = win.previewView();
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            emit preview->bridge()->bridgeInitialized();
+            assert(renderSpy.count() == 1);
+            assert(renderSpy.at(0).at(0).toString().contains("Rendered Once"));
+        });
+
+        it("emits no scroll ratio after the first render of a file", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_single_reveal_ratio_XXXXXX.md");
+            assert(tempFile.open());
+            QString markdown = "# Tall Document\n\n";
+            for (int i = 0; i < 120; ++i) {
+                markdown += QString("Paragraph %1 pushes the document past one screen.\n\n").arg(i);
             }
-            markdown += "## Target Anchor\n\nneedle_target second match\n";
             tempFile.write(markdown.toUtf8());
             tempFile.close();
 
             MainWindow win(tempFile.fileName(), MainWindow::Mode::Preview, true);
-            win.resize(960, 520);
+            PreviewView* preview = win.previewView();
+            QSignalSpy ratioSpy(preview->bridge(), &WebBridge::scrollToRatio);
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            emit preview->bridge()->bridgeInitialized();
+            emit preview->bridge()->documentRendered(1);
+            app.processEvents();
+            assert(ratioSpy.count() == 0);
+            assert(renderSpy.count() == 1);
+            assert(!renderSpy.at(0).at(1).toJsonObject().contains("scrollRatio"));
+            assert(preview->isRevealed());
+        });
+
+        it("applies a find query issued before the reveal", [&]() {
+            DocumentSession session;
+            session.setMarkdown("# Find Me\n\nneedle_target appears here.\n");
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            PreviewView preview(&session);
+            preview.findText("needle_target", true, false);
+            assert(!preview.isWebEngineInitialized());
+
+            preview.ensureWebEngineInitialized();
+            FakeWebEngineBackend* fake = lastFakeWebEngineBackend();
+            assert(fake != nullptr);
+            assert(fake->searches.isEmpty());
+            emit preview.bridge()->bridgeInitialized();
+            emit preview.bridge()->documentRendered(1);
+            assert(fake->searches == QStringList{QStringLiteral("needle_target")});
+
+            emit preview.bridge()->documentRendered(1);
+            assert(fake->searches.size() == 1);
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("applies a heading target issued before the reveal", [&]() {
+            DocumentSession session;
+            session.setMarkdown("# Root\n\n## Target Anchor\n\nText.\n");
+            PreviewView preview(&session);
+            QSignalSpy navigateSpy(preview.bridge(), &WebBridge::navigateToHeading);
+            preview.scrollToHeading("target-anchor");
+            assert(navigateSpy.count() == 0);
+
+            emit preview.bridge()->bridgeInitialized();
+            assert(navigateSpy.count() == 0);
+            emit preview.bridge()->documentRendered(2);
+            assert(navigateSpy.count() == 1);
+            assert(navigateSpy.at(0).at(0).toString() == QStringLiteral("target-anchor"));
+
+            preview.scrollToHeading("root");
+            assert(navigateSpy.count() == 2);
+        });
+
+        it("applies a scroll ratio issued before the reveal", [&]() {
+            DocumentSession session;
+            session.setMarkdown("# Ratio Root\n\nBody.\n");
+            PreviewView preview(&session);
+            preview.scrollToRatio(0.4);
+            preview.setMarkdown(session.markdown());
+
+            QSignalSpy renderSpy(preview.bridge(), &WebBridge::renderDocument);
+            QSignalSpy ratioSpy(preview.bridge(), &WebBridge::scrollToRatio);
+            emit preview.bridge()->bridgeInitialized();
+            assert(renderSpy.count() == 1);
+            const QJsonObject opts = renderSpy.at(0).at(1).toJsonObject();
+            assert(std::abs(opts.value("scrollRatio").toDouble() - 0.4) < 1e-9);
+
+            preview.scrollToRatio(0.7);
+            assert(ratioSpy.count() == 1);
+        });
+
+        it("applies zoom set before the reveal", [&]() {
+            DocumentSession session;
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            PreviewView preview(&session);
+            preview.setZoomFactor(1.4);
+            preview.ensureWebEngineInitialized();
+            FakeWebEngineBackend* fake = lastFakeWebEngineBackend();
+            assert(fake != nullptr);
+            assert(std::abs(fake->zoom - 1.4) < 0.01);
+            assert(fake->openedUrl == QUrl(QStringLiteral("qrc:/web/template.html")));
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("shows the load failure reason when the web engine plugin is missing", [&]() {
+            DocumentSession session;
+            PreviewView::overrideBackendFactory(nullptr, QStringLiteral("libmarkd_webengine missing for test"));
+            PreviewView preview(&session);
+            preview.ensureWebEngineInitialized();
+            assert(!preview.isWebEngineInitialized());
+            QLabel* failure = preview.loadFailureLabel();
+            assert(failure != nullptr);
+            assert(failure->objectName() == QStringLiteral("previewLoadFailure"));
+            assert(failure->text().contains("libmarkd_webengine missing for test"));
+            preview.ensureWebEngineInitialized();
+            assert(preview.findChildren<QLabel*>("previewLoadFailure").size() == 1);
+
+            QString exported = QStringLiteral("unset");
+            preview.toHtml([&](const QString& html) { exported = html; });
+            assert(exported.isEmpty());
+
+            PreviewView::overrideBackendFactory(&createNullWebEngineBackend, QStringLiteral("factory returned no backend"));
+            PreviewView nullPreview(&session);
+            nullPreview.ensureWebEngineInitialized();
+            assert(!nullPreview.isWebEngineInitialized());
+            assert(nullPreview.loadFailureLabel()->text().contains("factory returned no backend"));
+
+            PreviewView::overrideBackendFactory(nullptr);
+            PreviewView unnamedPreview(&session);
+            unnamedPreview.ensureWebEngineInitialized();
+            assert(unnamedPreview.loadFailureLabel()->text().contains("libmarkd_webengine could not be found"));
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("carries the editor scroll ratio into the preview on mode switch", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_mode_switch_ratio_XXXXXX.md");
+            assert(tempFile.open());
+            QString markdown;
+            for (int i = 0; i < 300; ++i) {
+                markdown += QString("Plain line %1 with no headings anywhere.\n\n").arg(i);
+            }
+            tempFile.write(markdown.toUtf8());
+            tempFile.close();
+
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow win(tempFile.fileName(), MainWindow::Mode::Edit, true);
+            win.resize(900, 600);
+            win.show();
+            app.processEvents();
+            QScrollBar* bar = win.editor()->verticalScrollBar();
+            assert(bar->maximum() > 0);
+            bar->setValue(bar->maximum() / 2);
 
             PreviewView* preview = win.previewView();
-            preview->focusPreviewSurface();
-            win.session()->setZoomFactor(1.4);
-            assert(std::abs(preview->zoomFactor() - 1.4) < 0.01);
-
-            preview->instantSurface()->resize(900, 420);
-            preview->instantSurface()->setVerticalScrollRatio(0.5);
-            assert(preview->instantSurface()->verticalScrollRatio() >= 0.0);
-
-            int reportedActive = -1;
-            int reportedTotal = -1;
-            QObject::connect(&win, &MainWindow::findResult, [&](int active, int total) {
-                reportedActive = active;
-                reportedTotal = total;
-            });
-
-            win.findText("needle_target", true, false);
-            assert(!preview->isWebEngineInitialized());
-            assert(reportedActive == 1);
-            assert(reportedTotal == 2);
-
-            preview->selectAllContent();
-            preview->copySelection();
-            preview->scrollToHeading("target-anchor");
-            assert(!preview->isWebEngineInitialized());
-
-            win.show();
-            win.activateWindow();
-            preview->focusPreviewSurface();
-            app.processEvents();
-
-            assert(preview->isWebEngineInitialized());
-            assert(std::abs(preview->webView()->zoomFactor() - 1.4) < 0.01);
-
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            QSignalSpy ratioSpy(preview->bridge(), &WebBridge::scrollToRatio);
+            win.setMode(MainWindow::Mode::Preview);
+            assert(renderSpy.count() == 0);
             emit preview->bridge()->bridgeInitialized();
-            emit preview->bridge()->documentRendered(2);
+            assert(renderSpy.count() == 1);
+            const double firstRatio = renderSpy.at(0).at(1).toJsonObject().value("scrollRatio").toDouble();
+            assert(firstRatio > 0.3 && firstRatio < 0.7);
+
+            win.setMode(MainWindow::Mode::Edit);
+            win.setMode(MainWindow::Mode::Preview);
+            assert(ratioSpy.count() == 1);
+            assert(std::abs(ratioSpy.at(0).at(0).toDouble() - firstRatio) < 0.05);
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("hands focus to the web view when it attaches", [&]() {
+            DocumentSession session;
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            QWidget host;
+            auto* preview = new PreviewView(&session, &host);
+            host.show();
+            host.activateWindow();
             app.processEvents();
-
-            assert(!preview->isShowingInstantSurface());
+            preview->focusPreviewSurface();
             assert(preview->hasPreviewFocus());
-            preview->selectAllContent();
+            preview->ensureWebEngineInitialized();
+            FakeWebEngineBackend* fake = lastFakeWebEngineBackend();
+            assert(fake != nullptr);
+            assert(fake->viewWidget()->hasFocus());
+            preview->focusPreviewSurface();
             preview->copySelection();
+            preview->selectAllContent();
+            assert(fake->copies == 1);
+            assert(fake->selectAlls == 1);
+
+            auto* siblingInput = new QLineEdit(preview);
+            siblingInput->show();
+            siblingInput->setFocus(Qt::OtherFocusReason);
+            app.processEvents();
+            assert(siblingInput->hasFocus());
+            assert(preview->hasPreviewFocus());
+            PreviewView::clearBackendFactoryOverride();
         });
+    });
 
-        it("routes external http links to desktop services and internal anchors within instant surface", [&]() {
-            QTemporaryDir tempDir;
-            assert(tempDir.isValid());
-            const QString docPath = tempDir.filePath("links.md");
-
-            InstantPreviewSurface surface;
-            surface.show();
-            surface.resize(1000, 400);
-            assert(std::abs(surface.document()->rootFrame()->frameFormat().leftMargin() - 168.0) < 0.5);
-            assert(std::abs(surface.document()->rootFrame()->frameFormat().topMargin() - 40.0) < 0.5);
-            surface.resize(800, 400);
-            assert(std::abs(surface.document()->rootFrame()->frameFormat().leftMargin() - 68.0) < 0.5);
-
-            QList<QUrl> openedExternalUrls;
-            surface.setExternalUrlHandler([&](const QUrl& url) {
-                openedExternalUrls.append(url);
-            });
-
-            QSignalSpy externalSpy(&surface, &InstantPreviewSurface::externalLinkActivated);
-            QSignalSpy internalSpy(&surface, &InstantPreviewSurface::internalAnchorActivated);
-
-            const QString md =
-                "# First Heading\n\n"
-                "[Jump](#second-heading)\n\n"
-                "[External](https://example.com/docs)\n\n"
-                "[Contact](mailto:team@example.com)\n\n"
-                "![Diagram](diagram.png)\n\n"
-                "Price stays $100 while math $x = \\frac{1}{2}$ and:\n\n"
-                "$$\n\\int_0^1 x^2 dx\n$$\n\n"
-                "```mermaid\ngraph TD;\nRawNode-->HiddenNode;\n```\n\n"
-                "## Second Heading\n\n"
-                "Target section text.\n";
-            surface.renderMarkdown(md, docPath);
-            assert(!surface.toPlainText().contains("RawNode"));
-            assert(!surface.toPlainText().contains("\\int_0^1"));
-            assert(!surface.toPlainText().contains("\\frac{1}{2}"));
-            assert(surface.toPlainText().contains("$100"));
-            assert(surface.toPlainText().contains("Diagram"));
-            assert(surface.toPlainText().contains("Equation"));
-
-            const QString baseUrl = surface.document()->metaInformation(QTextDocument::DocumentUrl);
-            assert(baseUrl.startsWith("file://"));
-
-            emit surface.anchorClicked(QUrl(QStringLiteral("#second-heading")));
-            assert(internalSpy.count() == 1);
-            assert(openedExternalUrls.isEmpty());
-
-            emit surface.anchorClicked(QUrl(QStringLiteral("https://example.com/docs")));
-            emit surface.anchorClicked(QUrl(QStringLiteral("mailto:team@example.com")));
-            emit surface.anchorClicked(QUrl(QStringLiteral("javascript:alert(1)")));
-
-            assert(externalSpy.count() == 2);
-            assert(openedExternalUrls.size() == 2);
-            assert(openedExternalUrls.at(0) == QUrl(QStringLiteral("https://example.com/docs")));
-            assert(openedExternalUrls.at(1) == QUrl(QStringLiteral("mailto:team@example.com")));
-        });
-
+    describe("Deferred web engine hydration and startup coalescing", [&]() {
         it("shares off-the-record web engine profile with disk cache and persistent cookies disabled", [&]() {
             QWebEngineProfile* profile = PreviewView::sharedPreviewProfile();
             assert(profile != nullptr);
@@ -454,10 +528,7 @@ inline void testStartupPerformanceAndHydration(MarkdApplication& app) {
             preloadedPreview.resize(420, 220);
             preloadedPreview.show();
             app.processEvents();
-            preloadedPreview.instantSurface()->setVerticalScrollRatio(0.5);
-            assert(preloadedPreview.instantSurface()->verticalScrollRatio() > 0.2);
-            preloadedPreview.instantSurface()->renderMarkdown(QString());
-            assert(preloadedPreview.instantSurface()->toPlainText().isEmpty());
+            assert(preloadedPreview.pendingMarkdown() == tallDoc);
 
             app.closeAllWindows();
             app.processEvents();

@@ -72,8 +72,6 @@ set(COMMON_SOURCES
     src/ui/TocItemDelegate.h
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
-    src/ui/InstantPreviewSurface.h
-    src/ui/InstantPreviewSurface.cpp
     src/ui/WebEngineBackend.h
     src/ui/PreviewView.h
     src/ui/PreviewView.cpp

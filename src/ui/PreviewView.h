@@ -10,14 +10,14 @@
 #include <QPointer>
 #include <functional>
 #include "bridge/WebBridge.h"
+#include "ui/WebEngineBackend.h"
 
 class DocumentSession;
-class InstantPreviewSurface;
+class QLabel;
 class QShowEvent;
 class QStackedLayout;
 class QWebEngineProfile;
 class QWebEngineView;
-class WebEngineBackend;
 
 class PreviewView : public QWidget {
     Q_OBJECT
@@ -28,11 +28,14 @@ public:
     ~PreviewView() override;
 
     static QWebEngineProfile* sharedPreviewProfile();
+    // Test seam: replaces the plugin factory (nullptr simulates a missing plugin) until cleared.
+    static void overrideBackendFactory(CreateWebEngineBackendFn factory, const QString& failureReason = QString());
+    static void clearBackendFactoryOverride();
 
     QWebEngineView* webView() const;
-    InstantPreviewSurface* instantSurface() const { return m_instantSurface; }
     bool isWebEngineInitialized() const { return m_backend != nullptr; }
-    bool isShowingInstantSurface() const { return m_showingInstantSurface; }
+    bool isRevealed() const { return m_revealed; }
+    QLabel* loadFailureLabel() const { return m_loadFailureLabel; }
 
     void schedulePostShowHydration();
     void ensureWebEngineInitialized();
@@ -85,21 +88,21 @@ protected:
 private:
     void wireBridgeSignals();
     void bindSessionSignals();
-    void completeInstantSurfaceSwap();
+    void applyDeferredRequestsOnFirstReveal();
+    void showLoadFailure(const QString& reason);
     void pollCocoaExposeThenHydrate(int remainingTicks);
     void installWebViewEventFilters();
 
     QStackedLayout* m_stackLayout = nullptr;
-    InstantPreviewSurface* m_instantSurface = nullptr;
+    QLabel* m_loadFailureLabel = nullptr;
     WebEngineBackend* m_backend = nullptr;
     WebBridge* m_bridge = nullptr;
     QWebChannel* m_channel = nullptr;
     DocumentSession* m_session = nullptr;
-    bool m_showingInstantSurface = true;
+    bool m_revealed = false;
     bool m_hydrationScheduled = false;
     bool m_pageLoaded = false;
     bool m_bridgeReady = false;
-    QString m_lastInstantMarkdown;
     QString m_pendingMarkdown;
     QJsonObject m_pendingOptions;
     QString m_pendingHeadingId;
