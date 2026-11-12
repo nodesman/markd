@@ -114,10 +114,21 @@ tasks:
       - task: benchmark
 
   test:
-    desc: Run both decoupled test suites (C++ and Web)
+    desc: Run the C++, Web and git-hook test suites
     cmds:
       - task: test-cpp
       - task: test-web
+      - task: test-hooks
+
+  test-hooks:
+    desc: Check the pre-push startup hook against a stub benchmark
+    cmds:
+      - bash scripts/test_git_hooks.sh
+
+  install-hooks:
+    desc: Point this repo's core.hooksPath at scripts/git-hooks (runs task benchmark before every push)
+    cmds:
+      - bash scripts/install-git-hooks.sh .
 
   test-all:
     desc: Alias for test
