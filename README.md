@@ -13,8 +13,6 @@
   <a href="https://markd.aramudan.dev"><strong>Website</strong></a> ·
   <a href="#installation"><strong>Install</strong></a> ·
   <a href="#features"><strong>Features</strong></a> ·
-  <a href="#systems-architecture"><strong>Architecture</strong></a> ·
-  <a href="#building-from-source"><strong>Build</strong></a> ·
   <a href="LICENSE"><strong>GPL-3.0 License</strong></a>
 </p>
 
@@ -51,55 +49,6 @@ Upgrade with `brew update && brew upgrade markd`. Downloads (`.dmg`, `.tar.gz`) 
 Windows, Linux and npm packages are in development.
 
 ---
-
-## Building from Source
-
-### Prerequisites
-* **C++20 compiler:** Clang 15+ (macOS/Linux), GCC 12+ (Linux), or MSVC 2022 (Windows)
-* **CMake:** `>= 3.16`
-* **Qt 6 (`>= 6.5`):** `Core`, `Gui`, `Widgets`, `Network`, `WebChannel`, `WebEngineWidgets`, `Test`
-* **Node.js (`>= 20`):** Optional — used only for running the headless JSDOM/coverage web test suite
-
-### Configure, Build & Test (CMake)
-```sh
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="/path/to/Qt/6.5.3/macos/lib/cmake"
-cmake --build build -j8
-ctest --test-dir build --output-on-failure
-```
-
-### Run Web Rendering Tests (100% Branch & Line Coverage)
-```sh
-cd web
-npm ci
-npm run test:coverage
-```
-
-### Run Using `task` ([Taskfile](https://taskfile.dev))
-```sh
-task build          # Configure & compile Release binary + assertion-enabled CTest runner
-task test           # Run decoupled C++ (CTest) and Web (Node/JSDOM) suites
-task benchmark      # Verify p95 cold-start, CLI, and IPC latency budgets
-task package-macos  # Build self-contained arm64 Markd.app, .dmg, and .tar.gz
-```
-
----
-
-## Repository Layout
-
-```text
-├── CMakeLists.txt       # C++20 build graph (markd binary + libmarkd_webengine plugin + test_cli)
-├── Taskfile.yml         # Developer build, test, benchmark, and packaging automation
-├── src/
-│   ├── app/             # CLI fast-path parser, QApplication lifecycle, QLocalServer IPC
-│   ├── bridge/          # Bidirectional QWebChannel C++ <-> DOM contract
-│   ├── core/            # DocumentSession, live reload, file association, clipboard, updater
-│   ├── parser/          # Markdown heading & Table-of-Contents slug parser
-│   └── ui/              # PreviewView, EditorView, TOC, platform chrome
-├── web/                 # Offline Markdown-It + KaTeX + Mermaid renderer & 100%-covered test suite
-├── resources/           # Obsidian QSS theme, app icons, showcase document, Qt resource manifests
-├── scripts/             # Startup latency benchmarks, icon pipeline, Homebrew & macOS bundlers
-└── tests/               # 20 headless C++20 BDD test suites
-```
 
 ## License
 
