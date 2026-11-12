@@ -233,7 +233,8 @@ void MainWindow::setupUI()
             m_editor->setPlainText(md);
             ++m_editorPlainTextSyncCount;
         }
-        if (m_previewView && m_previewView->currentMarkdown() != md) {
+        // Edit mode keeps the hidden preview idle while typing; syncEditorToPreview renders on the switch.
+        if (m_currentMode == ModeSwitcher::DocumentMode::Preview && m_previewView && m_previewView->currentMarkdown() != md) {
             m_previewView->setMarkdown(md);
         }
     });

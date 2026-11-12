@@ -267,9 +267,10 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
 
             win.setMode(MainWindow::Mode::Edit);
             win.editor()->setPlainText("# Intermediate Edit");
-            assert(win.previewView()->renderedMarkdown().isEmpty());
+            assert(win.previewView()->renderedMarkdown() != win.session()->markdown());
             win.editor()->setPlainText("# Fresh Edit Heading\n\n| Col |\n|:---:|\n| Val |");
-            assert(win.previewView()->renderedMarkdown().isEmpty());
+            // Edit mode leaves the hidden preview idle (Task 8.12.4); export detects the stale DOM by comparison.
+            assert(win.previewView()->renderedMarkdown() != win.session()->markdown());
 
             const QString exportPath = QDir::tempPath() + "/markd_stale_guard_export.html";
             QFile::remove(exportPath);
