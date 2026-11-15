@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Markd
+GenericName=Markdown Reader
+Comment=Read and edit Markdown files
+Exec=markd %f
+Icon=markd
+Terminal=false
+Categories=Office;TextTools;Utility;
+MimeType=text/markdown;text/x-markdown;
+StartupWMClass=markd

@@ -1,0 +1,8 @@
+ARG UBUNTU=24.04
+FROM ubuntu:${UBUNTU}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build git ca-certificates \
+    qt6-base-dev qt6-webengine-dev qt6-webengine-dev-tools libqt6webchannel6-dev \
+    qt6-tools-dev libgl1-mesa-dev dpkg-dev file apt-utils gnupg \
+ && rm -rf /var/lib/apt/lists/*

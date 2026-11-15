@@ -142,6 +142,26 @@ tasks:
     cmds:
       - bash scripts/package_macos.sh
 
+  package-linux:
+    desc: Build the arm64 .deb in Docker and test installing it with apt (see packaging/linux/README.md)
+    cmds:
+      - bash scripts/package_linux.sh
+
+  package-linux-amd64:
+    desc: Build the amd64 .deb in Docker (emulated on Apple Silicon) and test installing it with apt
+    cmds:
+      - PLATFORM=linux/amd64 bash scripts/package_linux.sh
+
+  publish-apt:
+    desc: Upload the .deb files to the GitHub release and write the signed APT index into the website (key from 1Password)
+    cmds:
+      - bash scripts/publish_apt_repo.sh
+
+  test-published-apt:
+    desc: apt-get install markd from markd.aramudan.dev/apt in clean arm64 and amd64 Ubuntu containers
+    cmds:
+      - bash scripts/test_published_apt.sh
+
   homebrew-formula:
     desc: Generate Homebrew formula (markd.rb) from packaged macOS archive
     deps: [package-macos]
