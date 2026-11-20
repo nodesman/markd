@@ -181,6 +181,7 @@ pre code {
 }
 
 .code-block-card {
+    position: relative;
     background-color: #0d1117;
     border: 1px solid #1e242c;
     border-radius: 6px;
@@ -189,6 +190,8 @@ pre code {
 }
 
 .code-block-header {
+    position: relative;
+    z-index: 5;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -300,7 +303,7 @@ li > p {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1;
+    z-index: 5;
     user-select: none;
     -webkit-user-select: none;
 }
@@ -378,6 +381,8 @@ img {
 }
 
 .expandable-toolbar {
+    position: relative;
+    z-index: 5;
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -467,6 +472,83 @@ img {
     margin: 0 auto;
     display: block;
     max-width: none;
+}
+
+/* ---- Inline Block Resize (Center-Anchored Horizontal Breakout & Vertical Aperture) ---- */
+.is-resized-x {
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: max(280px, calc(100vw - 48px));
+}
+
+body.is-block-resizing {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body.is-block-resizing * {
+    cursor: inherit !important;
+}
+
+.block-resize-handle {
+    position: absolute;
+    z-index: 4;
+    background: transparent;
+    transition: background-color 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.block-resize-handle:hover,
+.is-resizing > .block-resize-handle {
+    background: rgba(88, 166, 255, 0.32);
+}
+
+.is-resizing > .block-resize-handle:hover {
+    background: rgba(88, 166, 255, 0.6);
+}
+
+.block-resize-handle-w {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 7px;
+    cursor: ew-resize;
+}
+
+.block-resize-handle-e {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 7px;
+    cursor: ew-resize;
+}
+
+.block-resize-handle-s {
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+    height: 7px;
+    cursor: ns-resize;
+}
+
+.block-resize-handle-sw {
+    left: 0;
+    bottom: 0;
+    width: 14px;
+    height: 14px;
+    z-index: 5;
+    cursor: nesw-resize;
+}
+
+.block-resize-handle-se {
+    right: 0;
+    bottom: 0;
+    width: 14px;
+    height: 14px;
+    z-index: 5;
+    cursor: nwse-resize;
 }
 
 /* ---- Full-view overlay ---- */
@@ -811,8 +893,16 @@ del {
     .expandable-toolbar,
     .table-expand-btn,
     .fullview-overlay,
-    .copy-btn {
+    .copy-btn,
+    .block-resize-handle {
         display: none !important;
+    }
+
+    .is-resized-x {
+        left: auto !important;
+        transform: none !important;
+        width: auto !important;
+        max-width: 100% !important;
     }
 
     .code-block-card,
@@ -846,6 +936,7 @@ del {
     .mermaid-viewport {
         background-color: #0d1117 !important;
         border: 1px solid #30363d !important;
+        height: auto !important;
         overflow: visible !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;

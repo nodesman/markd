@@ -348,6 +348,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fun
 var diagramTeardowns = [];
 
 function cleanupDiagramListeners() {
+    stopActiveBlockResize();
     while (diagramTeardowns.length > 0) {
         var teardown = diagramTeardowns.pop();
         teardown();
@@ -578,6 +579,11 @@ async function executeRenderMarkdown(markdownText, options) {
     closeFullView(true);
     cleanupDiagramListeners();
 
+    var preserveBlockSizes = !!(options && (options.preserveScroll === true || options.force === true));
+    if (!preserveBlockSizes) {
+        blockSizeMemory = Object.create(null);
+    }
+
     const contentEl = document.getElementById('content');
     var prevScrollY = window.scrollY || 0;
     var existingFrontmatter = contentEl.querySelector('.markd-frontmatter');
@@ -620,8 +626,9 @@ async function executeRenderMarkdown(markdownText, options) {
     // 5. Wrap mermaid diagrams in expandable containers with zoom/pan
     wrapMermaidDiagrams();
 
-    // 6. Wrap tables in expandable containers
+    // 6. Wrap tables in expandable containers and attach code block resize handles
     wrapTables();
+    attachCodeBlockResizeHandles();
 
     // 7. Set up scroll spy
     setupScrollSpy();
@@ -804,11 +811,167 @@ function resolvePostRenderScroll(options, prevScrollY) {
     window.scrollTo(0, 0);
 }
 
+// ---- Inline Block Resize (Center-Anchored Breakout & Vertical Aperture) ----
+
+var blockSizeMemory = Object.create(null);
+var activeBlockResizeCleanup = null;
+var BLOCK_RESIZE_CURSORS = {
+    w: 'ew-resize',
+    e: 'ew-resize',
+    s: 'ns-resize',
+    sw: 'nesw-resize',
+    se: 'nwse-resize'
+};
+
+function stopActiveBlockResize() {
+    if (!activeBlockResizeCleanup) return;
+    var cleanup = activeBlockResizeCleanup;
+    activeBlockResizeCleanup = null;
+    cleanup();
+}
+
+function clampBlockWidth(rawWidth) {
+    var viewportWidth = window.innerWidth || 1024;
+    var maxWidth = Math.max(280, viewportWidth - 48);
+    var minWidth = Math.min(420, maxWidth);
+    return Math.round(Math.max(minWidth, Math.min(maxWidth, rawWidth)));
+}
+
+function clampBlockHeight(rawHeight) {
+    var viewportHeight = window.innerHeight || 800;
+    var maxHeight = Math.max(220, Math.round(viewportHeight * 0.85));
+    return Math.round(Math.max(220, Math.min(maxHeight, rawHeight)));
+}
+
+function measureBlockWidth(container) {
+    var rectWidth = container.getBoundingClientRect().width;
+    return rectWidth > 0 ? rectWidth : 664;
+}
+
+function measureBlockHeight(target) {
+    var rectHeight = target.getBoundingClientRect().height;
+    return rectHeight > 0 ? rectHeight : 320;
+}
+
+function applyBlockDimensions(container, verticalTarget, blockKey, width, height) {
+    var entry = blockSizeMemory[blockKey] || {};
+    if (typeof width === 'number') {
+        var clampedW = clampBlockWidth(width);
+        container.style.width = clampedW + 'px';
+        container.classList.add('is-resized-x');
+        entry.width = clampedW;
+    }
+    if (verticalTarget && typeof height === 'number') {
+        var clampedH = clampBlockHeight(height);
+        verticalTarget.style.height = clampedH + 'px';
+        container.classList.add('is-resized-y');
+        entry.height = clampedH;
+    }
+    blockSizeMemory[blockKey] = entry;
+}
+
+function resetBlockDimensions(container, verticalTarget, blockKey) {
+    container.style.width = '';
+    container.classList.remove('is-resized-x');
+    container.classList.remove('is-resized-y');
+    if (verticalTarget) {
+        verticalTarget.style.height = '';
+    }
+    delete blockSizeMemory[blockKey];
+}
+
+function computeNextWidth(axis, startWidth, dx) {
+    if (axis.indexOf('e') !== -1) return startWidth + (2 * dx);
+    if (axis.indexOf('w') !== -1) return startWidth - (2 * dx);
+    return null;
+}
+
+function computeNextHeight(axis, startHeight, dy) {
+    if (axis.indexOf('s') !== -1) return startHeight + dy;
+    return null;
+}
+
+function startBlockResizeDrag(event, container, verticalTarget, blockKey, axis) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    stopActiveBlockResize();
+
+    var startX = event.clientX;
+    var startY = event.clientY;
+    var startWidth = measureBlockWidth(container);
+    var startHeight = verticalTarget ? measureBlockHeight(verticalTarget) : 0;
+
+    container.classList.add('is-resizing');
+    document.body.classList.add('is-block-resizing');
+    document.body.style.cursor = BLOCK_RESIZE_CURSORS[axis];
+
+    var onMove = function (moveEvent) {
+        var nextW = computeNextWidth(axis, startWidth, moveEvent.clientX - startX);
+        var nextH = computeNextHeight(axis, startHeight, moveEvent.clientY - startY);
+        applyBlockDimensions(container, verticalTarget, blockKey, nextW, nextH);
+    };
+
+    var finish = function () {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', finish);
+        document.removeEventListener('mouseleave', finish);
+        window.removeEventListener('blur', finish);
+        container.classList.remove('is-resizing');
+        document.body.classList.remove('is-block-resizing');
+        document.body.style.cursor = '';
+        activeBlockResizeCleanup = null;
+    };
+
+    activeBlockResizeCleanup = finish;
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', finish);
+    document.addEventListener('mouseleave', finish);
+    window.addEventListener('blur', finish);
+}
+
+function createResizeHandle(container, verticalTarget, blockKey, axis) {
+    var handle = document.createElement('div');
+    handle.className = 'block-resize-handle block-resize-handle-' + axis;
+    handle.setAttribute('data-resize-axis', axis);
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-label', 'Resize block (' + axis + ')');
+    handle.title = 'Drag to resize · Double-click to reset';
+    handle.addEventListener('mousedown', function (e) {
+        startBlockResizeDrag(e, container, verticalTarget, blockKey, axis);
+    });
+    handle.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        resetBlockDimensions(container, verticalTarget, blockKey);
+    });
+    return handle;
+}
+
+function attachBlockResizeHandles(container, verticalTarget, blockKey) {
+    if (container.querySelector('.block-resize-handle')) return;
+    var axes = verticalTarget ? ['w', 'e', 's', 'sw', 'se'] : ['w', 'e'];
+    axes.forEach(function (axis) {
+        container.appendChild(createResizeHandle(container, verticalTarget, blockKey, axis));
+    });
+    var saved = blockSizeMemory[blockKey];
+    if (saved) {
+        applyBlockDimensions(container, verticalTarget, blockKey, saved.width, saved.height);
+    }
+}
+
+function attachCodeBlockResizeHandles() {
+    var cards = document.querySelectorAll('#content .code-block-card');
+    cards.forEach(function (card, index) {
+        attachBlockResizeHandles(card, null, 'code:' + index);
+    });
+}
+
 // ---- Expandable containers ----
 
 function wrapMermaidDiagrams() {
     var diagrams = document.querySelectorAll('#content .mermaid');
-    diagrams.forEach(function (diagram) {
+    diagrams.forEach(function (diagram, index) {
         if (diagram.closest('.expandable-container')) return;
 
         var container = document.createElement('div');
@@ -821,7 +984,7 @@ function wrapMermaidDiagrams() {
             '<button class="zoom-out-btn" title="Zoom out">−</button>' +
             '<span class="zoom-label">100%</span>' +
             '<button class="zoom-in-btn" title="Zoom in">+</button>' +
-            '<button class="zoom-reset-btn" title="Reset zoom">↺</button>' +
+            '<button class="zoom-reset-btn" title="Reset zoom &amp; size">↺</button>' +
             '<button class="fullview-btn" title="Full view">⛶</button>';
 
         // Viewport for pan/zoom
@@ -836,13 +999,15 @@ function wrapMermaidDiagrams() {
         container.appendChild(toolbar);
         container.appendChild(viewport);
 
-        setupDiagramZoomPan(container, viewport, inner);
+        var blockKey = 'mermaid:' + index;
+        setupDiagramZoomPan(container, viewport, inner, blockKey);
+        attachBlockResizeHandles(container, viewport, blockKey);
     });
 }
 
 function wrapTables() {
     var tables = document.querySelectorAll('#content > table');
-    tables.forEach(function (table) {
+    tables.forEach(function (table, index) {
         if (table.parentElement.classList.contains('table-wrapper')) return;
 
         var wrapper = document.createElement('div');
@@ -860,12 +1025,14 @@ function wrapTables() {
         btn.addEventListener('click', function () {
             openFullView(table.cloneNode(true), false);
         });
+
+        attachBlockResizeHandles(wrapper, null, 'table:' + index);
     });
 }
 
 // ---- Diagram zoom/pan ----
 
-function setupDiagramZoomPan(container, viewport, inner) {
+function setupDiagramZoomPan(container, viewport, inner, blockKey) {
     var scale = 1;
     var panX = 0;
     var panY = 0;
@@ -904,6 +1071,7 @@ function setupDiagramZoomPan(container, viewport, inner) {
     container.querySelector('.zoom-reset-btn').addEventListener('click', function () {
         scale = 1; panX = 0; panY = 0;
         applyTransform(true);
+        resetBlockDimensions(container, viewport, blockKey);
     });
 
     container.querySelector('.fullview-btn').addEventListener('click', function () {
@@ -1188,6 +1356,7 @@ window.closeFullView = closeFullView;
 window.setupScrollSpy = setupScrollSpy;
 window.wrapMermaidDiagrams = wrapMermaidDiagrams;
 window.wrapTables = wrapTables;
+window.attachCodeBlockResizeHandles = attachCodeBlockResizeHandles;
 window.handleSessionMarkdownChanged = handleSessionMarkdownChanged;
 
 // Signal engine readiness once DOM is fully prepared

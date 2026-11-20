@@ -106,6 +106,7 @@ QString HtmlClipboardProvider::sanitizeExportHtml(const QString& rawHtml) {
     sanitized = stripElementsByClass(sanitized, QStringLiteral("div"), QStringLiteral("expandable-toolbar"));
     sanitized = stripElementsByClass(sanitized, QStringLiteral("div"), QStringLiteral("fullview-overlay"));
     sanitized = stripElementsByClass(sanitized, QStringLiteral("div"), QStringLiteral("fullview-toolbar"));
+    sanitized = stripElementsByClass(sanitized, QStringLiteral("div"), QStringLiteral("block-resize-handle"));
     return sanitized.trimmed();
 }
 

@@ -220,6 +220,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
                 "<div class=\"expandable-container\">"
                 "<div class=\"expandable-toolbar\"><div class=\"mermaid-zoom-controls\"><button>+</button><button>-</button></div></div>"
                 "<div class=\"mermaid-viewport\"><svg><text>Diagram 1</text></svg></div>"
+                "<div class=\"block-resize-handle block-resize-handle-e\"></div>"
                 "</div>"
                 "<p>Between diagrams</p>"
                 "<div class=\"expandable-container\">"
@@ -253,6 +254,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
             assert(!articleBody.contains("fullview-overlay"));
             assert(!articleBody.contains("fullview-toolbar"));
             assert(!articleBody.contains("close-btn"));
+            assert(!articleBody.contains("block-resize-handle"));
         });
 
         it("exports latest edit buffer over stale preview dom and notifies status bar", [&]() {
