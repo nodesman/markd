@@ -4,9 +4,9 @@
   "description": "Markd web runtime and markdown renderer",
   "main": "dist/render.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build_runtime.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/render.test.js",
+    "test": "npm run build && node --test tests/render.test.js tests/build_runtime.test.js",
     "test:coverage": "npm run build && c8 --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test tests/render.test.js"
   },
   "keywords": [

@@ -34,14 +34,17 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChanne
 
 set(WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web")
 set(WEB_RENDER_JS "${WEB_DIR}/dist/render.js")
-set(WEB_TS_SOURCES
-    "${WEB_DIR}/src/render.ts"
-    "${WEB_DIR}/src/globals.d.ts"
+file(GLOB_RECURSE WEB_TS_SOURCES CONFIGURE_DEPENDS "${WEB_DIR}/src/*.ts")
+list(APPEND WEB_TS_SOURCES
     "${WEB_DIR}/tsconfig.json"
+    "${WEB_DIR}/scripts/build_runtime.js"
 )
 
+find_program(WEB_NODE_EXECUTABLE node)
 set(WEB_TSC_EXECUTABLE "")
-if(EXISTS "${WEB_DIR}/node_modules/.bin/tsc")
+if(WIN32 AND EXISTS "${WEB_DIR}/node_modules/.bin/tsc.cmd")
+    set(WEB_TSC_EXECUTABLE "${WEB_DIR}/node_modules/.bin/tsc.cmd")
+elseif(EXISTS "${WEB_DIR}/node_modules/.bin/tsc")
     set(WEB_TSC_EXECUTABLE "${WEB_DIR}/node_modules/.bin/tsc")
 else()
     find_program(WEB_GLOBAL_TSC tsc)
@@ -50,10 +53,10 @@ else()
     endif()
 endif()
 
-if(WEB_TSC_EXECUTABLE)
+if(WEB_NODE_EXECUTABLE AND WEB_TSC_EXECUTABLE)
     add_custom_command(
         OUTPUT "${WEB_RENDER_JS}"
-        COMMAND "${WEB_TSC_EXECUTABLE}" -p "${WEB_DIR}/tsconfig.json"
+        COMMAND "${WEB_NODE_EXECUTABLE}" "${WEB_DIR}/scripts/build_runtime.js" --tsc "${WEB_TSC_EXECUTABLE}"
         WORKING_DIRECTORY "${WEB_DIR}"
         DEPENDS ${WEB_TS_SOURCES}
         COMMENT "Compiling TypeScript web runtime (web/src -> web/dist/render.js)"

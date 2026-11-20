@@ -4,3 +4,4 @@ coverage/
 .nyc_output/
 dist/*.js
 dist/*.js.map
+dist/chunks/
