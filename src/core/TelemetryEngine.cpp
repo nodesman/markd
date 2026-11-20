@@ -1,4 +1,5 @@
 #include "core/TelemetryEngine.h"
+#include "parser/FrontmatterScanner.h"
 #include <cmath>
 #include <QLocale>
 
@@ -17,7 +18,7 @@ void TelemetryEngine::resetCalculateCallCount()
 }
 
 QString TelemetryEngine::stripMarkdownSyntax(const QString& markdown) {
-    QString text = markdown;
+    QString text = FrontmatterScanner::strip(markdown);
 
     // 1. Strip HTML comments
     text.remove(QRegularExpression(R"(<!--[\s\S]*?-->)"));

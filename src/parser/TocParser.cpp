@@ -1,4 +1,5 @@
 #include "parser/TocParser.h"
+#include "parser/FrontmatterScanner.h"
 #include <QStringList>
 #include <QRegularExpression>
 
@@ -94,7 +95,7 @@ std::vector<TocItem> TocParser::extractHeadings(const QString& markdown)
     // Thematic break regex (3 or more *, -, or _ with optional spaces)
     QRegularExpression thematicBreakRegex(R"(^[ \t]*([*-_])[ \t]*(?:\1[ \t]*){2,}[ \t]*$)");
 
-    for (int i = 0; i < lines.size(); ++i) {
+    for (int i = FrontmatterScanner::bodyStartLine(lines); i < lines.size(); ++i) {
         const QString& line = lines[i];
 
         // 1. Check multi-line HTML comments

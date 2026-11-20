@@ -61,6 +61,8 @@ set(COMMON_SOURCES
     src/core/HtmlClipboardProvider.cpp
     src/core/TelemetryEngine.h
     src/core/TelemetryEngine.cpp
+    src/parser/FrontmatterScanner.h
+    src/parser/FrontmatterScanner.cpp
     src/parser/TocItem.h
     src/parser/TocParser.h
     src/parser/TocParser.cpp

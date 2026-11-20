@@ -373,6 +373,196 @@ function renderMarkdown(markdownText, options) {
     return renderDownlinkMutex;
 }
 
+// ---- Frontmatter Extraction & Disclosure Rendering ----
+
+function isFrontmatterOpenFence(rawFirstLine) {
+    var line = rawFirstLine.charCodeAt(0) === 0xFEFF ? rawFirstLine.slice(1) : rawFirstLine;
+    return /^---[ \t]*$/.test(line);
+}
+
+function findFrontmatterCloseIndex(lines) {
+    for (var i = 1; i < lines.length; i++) {
+        if (/^(---|\.\.\.)[ \t]*$/.test(lines[i])) return i;
+    }
+    return -1;
+}
+
+function isIgnorableYamlLine(line) {
+    var trimmed = line.trim();
+    return trimmed === '' || trimmed.charAt(0) === '#';
+}
+
+function isTopLevelYamlKey(line) {
+    return /^[A-Za-z0-9_.-]+[ \t]*:/.test(line);
+}
+
+function findNextNonEmptyIndex(lines, startIndex, endIndex) {
+    for (var i = startIndex; i < endIndex; i++) {
+        if (lines[i].trim() !== '') return i;
+    }
+    return -1;
+}
+
+function hasHeadingFollowedByProse(lines, closeIndex) {
+    for (var i = 1; i < closeIndex; i++) {
+        if (!/^#{1,6}[ \t]+/.test(lines[i].trim())) continue;
+        var nextIdx = findNextNonEmptyIndex(lines, i + 1, closeIndex);
+        if (nextIdx >= 0 && !isIgnorableYamlLine(lines[nextIdx]) && !isTopLevelYamlKey(lines[nextIdx])) return true;
+    }
+    return false;
+}
+
+function isPlausibleFrontmatter(lines, closeIndex) {
+    if (hasHeadingFollowedByProse(lines, closeIndex)) return false;
+    var sawContent = false;
+    for (var i = 1; i < closeIndex; i++) {
+        if (isIgnorableYamlLine(lines[i])) continue;
+        sawContent = true;
+        if (isTopLevelYamlKey(lines[i])) return true;
+    }
+    return !sawContent;
+}
+
+function unquoteYamlValue(text) {
+    if (text.length < 2) return text;
+    var first = text.charAt(0);
+    var last = text.charAt(text.length - 1);
+    if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) return text.slice(1, -1);
+    return text;
+}
+
+function hasUnclosedQuote(text) {
+    var first = text.charAt(0);
+    if (first !== '"' && first !== '\'') return false;
+    return text.length === 1 || text.charAt(text.length - 1) !== first;
+}
+
+function validateScalarValue(rest, lineNum) {
+    if (hasUnclosedQuote(rest)) return { line: lineNum, message: 'Unclosed quoted string (line ' + lineNum + ')' };
+    if (rest.charAt(0) === '[' && rest.charAt(rest.length - 1) !== ']') return { line: lineNum, message: 'Unclosed array bracket "[" (line ' + lineNum + ')' };
+    if (rest.charAt(0) === '{' && rest.slice(0, 2) !== '{{' && rest.charAt(rest.length - 1) !== '}') return { line: lineNum, message: 'Unclosed inline brace "{" (line ' + lineNum + ')' };
+    return null;
+}
+
+function collectNestedBlock(yamlLines, startIndex) {
+    var items = [];
+    var allListItems = true;
+    var idx = startIndex;
+    while (idx < yamlLines.length) {
+        var line = yamlLines[idx];
+        if (line.charAt(0) === '\t') return { error: { line: idx + 2, message: 'Tab indentation is not allowed in YAML (line ' + (idx + 2) + ')' } };
+        var isIndented = line.charAt(0) === ' ';
+        var isZeroList = /^- /.test(line);
+        if (!isIndented && !isZeroList && line.trim() !== '') break;
+        if (line.trim() !== '') {
+            var trimmed = line.trim();
+            if (!/^- /.test(trimmed)) allListItems = false;
+            items.push(line.replace(/^[ ]{1,2}/, ''));
+        }
+        idx++;
+    }
+    if (items.length > 0 && allListItems) {
+        return { nextIndex: idx, type: 'array', value: items.map(function (s) { return unquoteYamlValue(s.trim().slice(2).trim()); }) };
+    }
+    return { nextIndex: idx, type: 'nested', value: items.join('\n') };
+}
+
+function parseSingleYamlEntry(key, rest) {
+    if (rest.charAt(0) === '[' && rest.charAt(rest.length - 1) === ']') {
+        var parts = rest.slice(1, -1).split(',').map(function (s) { return unquoteYamlValue(s.trim()); }).filter(Boolean);
+        return { key: key, type: 'array', value: parts };
+    }
+    if (rest === 'true' || rest === 'false') return { key: key, type: 'bool', value: rest === 'true' };
+    var scalar = unquoteYamlValue(rest);
+    if (scalar.length > 500) scalar = scalar.slice(0, 500) + '…';
+    return { key: key, type: 'scalar', value: scalar };
+}
+
+function parseFrontmatterYaml(yamlLines) {
+    var entries = [];
+    var idx = 0;
+    while (idx < yamlLines.length) {
+        var line = yamlLines[idx];
+        var lineNum = idx + 2;
+        if (isIgnorableYamlLine(line)) { idx++; continue; }
+        if (line.charAt(0) === '\t') return { entries: [], error: { line: lineNum, message: 'Tab indentation is not allowed in YAML (line ' + lineNum + ')' } };
+        var match = line.match(/^([A-Za-z0-9_.-]+)[ \t]*:(.*)$/);
+        if (!match) return { entries: [], error: { line: lineNum, message: 'Expected "key: value" pair (line ' + lineNum + ')' } };
+        var key = match[1];
+        var rest = match[2].trim();
+        var valueErr = validateScalarValue(rest, lineNum);
+        if (valueErr) return { entries: [], error: valueErr };
+        if (rest === '' || rest === '|' || rest === '>' || rest === '|-' || rest === '>-') {
+            var block = collectNestedBlock(yamlLines, idx + 1);
+            if (block.error) return { entries: [], error: block.error };
+            entries.push({ key: key, type: block.type, value: block.value });
+            idx = block.nextIndex;
+            continue;
+        }
+        entries.push(parseSingleYamlEntry(key, rest));
+        idx++;
+    }
+    return { entries: entries, error: null };
+}
+
+function extractFrontmatter(markdownText) {
+    var normalized = markdownText.replace(/\r\n/g, '\n');
+    var lines = normalized.split('\n');
+    if (lines.length < 2 || !isFrontmatterOpenFence(lines[0])) return { found: false, body: markdownText };
+    var closeIndex = findFrontmatterCloseIndex(lines);
+    if (closeIndex < 0 || !isPlausibleFrontmatter(lines, closeIndex)) return { found: false, body: markdownText };
+    var yamlLines = lines.slice(1, closeIndex);
+    var parsed = parseFrontmatterYaml(yamlLines);
+    return { found: true, yamlLines: yamlLines, entries: parsed.entries, error: parsed.error, body: lines.slice(closeIndex + 1).join('\n') };
+}
+
+function renderFrontmatterValueHtml(entry) {
+    if (entry.type === 'array') {
+        var chips = entry.value.map(function (v) { return '<span class="markd-frontmatter-chip">' + md.utils.escapeHtml(v) + '</span>'; }).join('');
+        return '<div class="markd-frontmatter-chips">' + chips + '</div>';
+    }
+    if (entry.type === 'bool') {
+        var boolCls = entry.value ? 'markd-frontmatter-bool' : 'markd-frontmatter-bool is-false';
+        return '<span class="' + boolCls + '">' + String(entry.value) + '</span>';
+    }
+    if (entry.type === 'nested') return '<div class="markd-frontmatter-nested">' + md.utils.escapeHtml(entry.value) + '</div>';
+    return md.utils.escapeHtml(entry.value);
+}
+
+function renderFrontmatterErrorHtml(fm) {
+    var rawRows = fm.yamlLines.map(function (line, idx) {
+        var lineNum = idx + 2;
+        var rowCls = lineNum === fm.error.line ? 'markd-frontmatter-raw-line is-error-line' : 'markd-frontmatter-raw-line';
+        return '<div class="' + rowCls + '"><span class="markd-frontmatter-ln">' + lineNum + '</span><span class="markd-frontmatter-code">' + md.utils.escapeHtml(line || ' ') + '</span></div>';
+    }).join('');
+    return [
+        '<details class="markd-frontmatter markd-frontmatter-error" open>',
+        '<summary><span class="markd-frontmatter-title"><span class="markd-frontmatter-chevron">▶</span>Frontmatter <span class="markd-frontmatter-warn">Syntax issue · line ' + fm.error.line + '</span></span><span class="markd-frontmatter-hint">Switch to Edit (⌘E) to fix</span></summary>',
+        '<div class="markd-frontmatter-body"><div class="markd-frontmatter-error-bar">' + md.utils.escapeHtml(fm.error.message) + '</div><div class="markd-frontmatter-raw">' + rawRows + '</div></div>',
+        '</details>'
+    ].join('');
+}
+
+function renderFrontmatterHtml(fm, preserveOpen) {
+    if (fm.error) return renderFrontmatterErrorHtml(fm);
+    var openAttr = preserveOpen ? ' open' : '';
+    var bodyHtml = '<div class="markd-frontmatter-empty">Empty Jekyll frontmatter block (0 fields)</div>';
+    var hint = 'empty block';
+    if (fm.entries.length > 0) {
+        var rows = fm.entries.map(function (entry) {
+            return '<tr><td class="markd-frontmatter-key">' + md.utils.escapeHtml(entry.key) + '</td><td class="markd-frontmatter-val">' + renderFrontmatterValueHtml(entry) + '</td></tr>';
+        }).join('');
+        bodyHtml = '<table class="markd-frontmatter-table"><tbody>' + rows + '</tbody></table>';
+        hint = fm.entries.slice(0, 3).map(function (e) { return e.key; }).join(', ') + (fm.entries.length > 3 ? ', …' : '');
+    }
+    return [
+        '<details class="markd-frontmatter"' + openAttr + '>',
+        '<summary><span class="markd-frontmatter-title"><span class="markd-frontmatter-chevron">▶</span>Frontmatter <span class="markd-frontmatter-count">' + fm.entries.length + ' fields</span></span><span class="markd-frontmatter-hint">' + md.utils.escapeHtml(hint) + '</span></summary>',
+        '<div class="markd-frontmatter-body">' + bodyHtml + '</div>',
+        '</details>'
+    ].join('');
+}
+
 async function executeRenderMarkdown(markdownText, options) {
     // Defensive type guard rejecting non-string payloads
     if (typeof markdownText !== 'string') {
@@ -390,9 +580,13 @@ async function executeRenderMarkdown(markdownText, options) {
 
     const contentEl = document.getElementById('content');
     var prevScrollY = window.scrollY || 0;
+    var existingFrontmatter = contentEl.querySelector('.markd-frontmatter');
+    var preserveFrontmatterOpen = !!(existingFrontmatter && existingFrontmatter.open);
 
-    // 1. Parse markdown to HTML
-    var html = md.render(markdownText);
+    // 1. Extract optional YAML frontmatter and parse markdown body to HTML
+    var fm = extractFrontmatter(markdownText);
+    var frontmatterHtml = fm.found ? renderFrontmatterHtml(fm, preserveFrontmatterOpen) : '';
+    var html = frontmatterHtml + md.render(fm.body);
 
     // 2. Sanitize and insert into DOM
     var clean = DOMPurify.sanitize(html, {

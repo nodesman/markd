@@ -580,6 +580,203 @@ del {
     color: var(--text-secondary);
 }
 
+/* ---- Frontmatter Disclosure Panel ---- */
+.markd-frontmatter {
+    margin: 0 0 24px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #0b0e14;
+    overflow: hidden;
+}
+
+.markd-frontmatter-error {
+    border-color: rgba(227, 179, 65, 0.36);
+    background: linear-gradient(180deg, rgba(227, 179, 65, 0.06) 0%, #0b0e14 100%);
+}
+
+.markd-frontmatter > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.markd-frontmatter > summary::-webkit-details-marker {
+    display: none;
+}
+
+.markd-frontmatter > summary:hover {
+    background: #10151f;
+    color: var(--text);
+}
+
+.markd-frontmatter-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.markd-frontmatter-chevron {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--text-secondary);
+    transition: transform 0.14s ease;
+}
+
+.markd-frontmatter[open] .markd-frontmatter-chevron {
+    transform: rotate(90deg);
+}
+
+.markd-frontmatter-count,
+.markd-frontmatter-hint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.markd-frontmatter-warn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: #e3b341;
+    background: rgba(227, 179, 65, 0.12);
+    border: 1px solid rgba(227, 179, 65, 0.34);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.markd-frontmatter-body {
+    border-top: 1px solid var(--border);
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.markd-frontmatter-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0;
+    font-size: 12.5px;
+}
+
+.markd-frontmatter-table tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: transparent !important;
+}
+
+.markd-frontmatter-table tr:last-child {
+    border-bottom: none;
+}
+
+.markd-frontmatter-key {
+    width: 170px;
+    padding: 7px 14px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    vertical-align: top;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.markd-frontmatter-val {
+    padding: 7px 14px;
+    color: var(--text);
+    border: none;
+    word-break: break-word;
+}
+
+.markd-frontmatter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.markd-frontmatter-chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #9ccaff;
+    background: rgba(56, 139, 253, 0.14);
+    border: 1px solid rgba(56, 139, 253, 0.28);
+    padding: 1px 7px;
+    border-radius: 5px;
+}
+
+.markd-frontmatter-bool {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: #3fb950;
+}
+
+.markd-frontmatter-bool.is-false {
+    color: var(--text-secondary);
+}
+
+.markd-frontmatter-nested {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    white-space: pre-wrap;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 6px 9px;
+    border-radius: 6px;
+}
+
+.markd-frontmatter-empty {
+    padding: 11px 14px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-secondary);
+}
+
+.markd-frontmatter-error-bar {
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #f0cf7b;
+    background: rgba(227, 179, 65, 0.08);
+    border-bottom: 1px solid rgba(227, 179, 65, 0.2);
+}
+
+.markd-frontmatter-raw {
+    padding: 8px 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    background: #07090e;
+}
+
+.markd-frontmatter-raw-line {
+    display: flex;
+    padding: 0 14px;
+}
+
+.markd-frontmatter-raw-line.is-error-line {
+    background: rgba(227, 179, 65, 0.15);
+}
+
+.markd-frontmatter-ln {
+    width: 32px;
+    color: #535d70;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.markd-frontmatter-raw-line.is-error-line .markd-frontmatter-ln {
+    color: #e3b341;
+    font-weight: 700;
+}
+
+.markd-frontmatter-code {
+    white-space: pre;
+    color: var(--text);
+}
+
 /* Selection */
 ::selection {
     background: rgba(41, 151, 255, 0.3);
@@ -610,6 +807,7 @@ del {
         max-width: none;
     }
 
+    .markd-frontmatter,
     .expandable-toolbar,
     .table-expand-btn,
     .fullview-overlay,

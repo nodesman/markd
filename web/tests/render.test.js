@@ -2311,3 +2311,191 @@ describe('Single-Reveal Contract', () => {
         });
     });
 });
+
+describe('Frontmatter parsing, disclosure UI, and fail-open recovery', () => {
+    it('renders standard jekyll frontmatter as a collapsed details panel above markdown body', async () => {
+        const env = createRenderEnvironment();
+        const doc = [
+            '---',
+            'layout: post',
+            'title: "Markd: A Native Reader"',
+            'excerpt: {{ site.tagline }}',
+            'published: true',
+            'draft: false',
+            'tags: [macos, qt6]',
+            '---',
+            '',
+            '# Visible Heading',
+            '',
+            'Body paragraph.'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.open, false);
+        assert.match(details.querySelector('.markd-frontmatter-count').textContent, /6 fields/);
+        assert.match(details.querySelector('.markd-frontmatter-hint').textContent, /layout, title, excerpt, …/);
+        const chips = Array.from(details.querySelectorAll('.markd-frontmatter-chip')).map((el) => el.textContent);
+        assert.deepEqual(chips, ['macos', 'qt6']);
+        assert.equal(details.querySelectorAll('.markd-frontmatter-bool.is-false').length, 1);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Visible Heading');
+        assert.equal(env.win.document.querySelector('#content h2'), null);
+    });
+
+    it('accepts utf8 bom, crlf, trailing spaces, dot-dot-dot closer, single-quoted scalars, and single-char scalars', async () => {
+        const env = createRenderEnvironment();
+        const doc = '\uFEFF---   \r\n' +
+            "author: 'Raj'\r\n" +
+            'grade: A\r\n' +
+            '...\r\n' +
+            '# Clean Title';
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.match(details.querySelector('.markd-frontmatter-hint').textContent, /^author, grade$/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Clean Title');
+    });
+
+    it('renders empty and comment-only jekyll frontmatter without syntax warnings', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('---\n# enable liquid\n\n---\n# Liquid Body');
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.classList.contains('markd-frontmatter-error'), false);
+        assert.match(details.querySelector('.markd-frontmatter-empty').textContent, /0 fields/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Liquid Body');
+    });
+
+    it('parses zero-indent and indented block lists, nested blocks, multiline scalars with indented dashes, and truncates long values', async () => {
+        const env = createRenderEnvironment();
+        const longText = 'x'.repeat(540);
+        const doc = [
+            '---',
+            'tags:',
+            '- macos',
+            '- "cpp20"',
+            'categories:',
+            '  - systems',
+            '  - tools',
+            'summary: |',
+            '  Line one',
+            '  ---',
+            '  Line two',
+            '',
+            'seo:',
+            '  type: TechArticle',
+            'long_field: ' + longText,
+            '---',
+            '# Real Body'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.classList.contains('markd-frontmatter-error'), false);
+        const chips = Array.from(details.querySelectorAll('.markd-frontmatter-chip')).map((el) => el.textContent);
+        assert.deepEqual(chips, ['macos', 'cpp20', 'systems', 'tools']);
+        const nestedBlocks = Array.from(details.querySelectorAll('.markd-frontmatter-nested')).map((el) => el.textContent);
+        assert.equal(nestedBlocks.length, 2);
+        assert.match(nestedBlocks[0], /---/);
+        assert.match(nestedBlocks[1], /type: TechArticle/);
+        const vals = Array.from(details.querySelectorAll('.markd-frontmatter-val')).map((el) => el.textContent);
+        const truncated = vals.find((v) => v.startsWith('xxxx'));
+        assert.equal(truncated.length, 501);
+        assert.equal(truncated.endsWith('…'), true);
+    });
+
+    it('neutralizes html and script payloads inside frontmatter values', async () => {
+        const env = createRenderEnvironment();
+        const doc = [
+            '---',
+            'title: <img src=x onerror=alert(1)>',
+            '---',
+            '# Safe Body'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        assert.equal(env.win.document.querySelector('#content img'), null);
+        const val = env.win.document.querySelector('.markd-frontmatter-val').textContent;
+        assert.match(val, /<img src=x onerror=alert\(1\)>/);
+    });
+
+    it('preserves expanded details open state across live hot-reload renders', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('---\ntitle: First\n---\n# Body');
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        details.open = true;
+        await env.win.renderMarkdown('---\ntitle: Updated\n---\n# Body');
+        const rerendered = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.equal(rerendered.open, true);
+        assert.match(rerendered.textContent, /Updated/);
+    });
+
+    it('leaves broken opening fences, unclosed frontmatter, and decorative top horizontal rules as ordinary markdown', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('--\nlayout: post\n---\n# After');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nlayout: post\ntitle: Unclosed\n\nBody');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nlayout: post\n\n# Chapter 1\n\nReal prose\n\n---\n## Chapter 2');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Chapter 1');
+
+        await env.win.renderMarkdown('---\n\n# Chapter 1\n\nOpening prose\n\n---\n## Chapter 2');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nJust plain text\n---\n# After');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+    });
+
+    it('fails open with highlighted raw yaml on syntax errors while rendering body normally', async () => {
+        const env = createRenderEnvironment();
+
+        // Top-level tab indent
+        await env.win.renderMarkdown('---\nlayout: post\n\tbad: true\n\n---\n# Body');
+        let errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.ok(errDetails);
+        assert.equal(errDetails.open, true);
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Tab indentation.*line 3/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Body');
+
+        // Nested block tab indent
+        await env.win.renderMarkdown('---\nseo:\n\ttype: Article\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Tab indentation.*line 3/);
+
+        // Missing colon
+        await env.win.renderMarkdown('---\nlayout: post\nmissing colon here\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Expected "key: value".*line 3/);
+
+        // Unclosed double quote
+        await env.win.renderMarkdown('---\nlayout: post\ntitle: "unclosed\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed quoted string.*line 3/);
+
+        // Unclosed single quote (length 1)
+        await env.win.renderMarkdown("---\nlayout: post\ntitle: '\n---\n# Body");
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed quoted string.*line 3/);
+
+        // Unclosed array bracket
+        await env.win.renderMarkdown('---\nlayout: post\ntags: [macos, qt6\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed array bracket.*line 3/);
+
+        // Unclosed inline brace
+        await env.win.renderMarkdown('---\nlayout: post\nseo: { type: Article\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed inline brace.*line 3/);
+    });
+
+    it('hides frontmatter disclosure chrome in print stylesheet', () => {
+        const webDir = path.resolve(__dirname, '..');
+        const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+        assert.match(css, /@media print[\s\S]*\.markd-frontmatter[\s\S]*display:\s*none\s*!important/);
+    });
+});
