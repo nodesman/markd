@@ -816,9 +816,12 @@ function resolvePostRenderScroll(options, prevScrollY) {
 var blockSizeMemory = Object.create(null);
 var activeBlockResizeCleanup = null;
 var BLOCK_RESIZE_CURSORS = {
+    n: 'ns-resize',
     w: 'ew-resize',
     e: 'ew-resize',
     s: 'ns-resize',
+    nw: 'nwse-resize',
+    ne: 'nesw-resize',
     sw: 'nesw-resize',
     se: 'nwse-resize'
 };
@@ -832,7 +835,7 @@ function stopActiveBlockResize() {
 
 function clampBlockWidth(rawWidth) {
     var viewportWidth = window.innerWidth || 1024;
-    var maxWidth = Math.max(280, viewportWidth - 48);
+    var maxWidth = Math.min(viewportWidth, Math.max(280, viewportWidth - 48));
     var minWidth = Math.min(420, maxWidth);
     return Math.round(Math.max(minWidth, Math.min(maxWidth, rawWidth)));
 }
@@ -888,6 +891,7 @@ function computeNextWidth(axis, startWidth, dx) {
 
 function computeNextHeight(axis, startHeight, dy) {
     if (axis.indexOf('s') !== -1) return startHeight + dy;
+    if (axis.indexOf('n') !== -1) return startHeight - dy;
     return null;
 }
 
@@ -950,7 +954,7 @@ function createResizeHandle(container, verticalTarget, blockKey, axis) {
 
 function attachBlockResizeHandles(container, verticalTarget, blockKey) {
     if (container.querySelector('.block-resize-handle')) return;
-    var axes = verticalTarget ? ['w', 'e', 's', 'sw', 'se'] : ['w', 'e'];
+    var axes = verticalTarget ? ['n', 'w', 'e', 's', 'nw', 'ne', 'sw', 'se'] : ['w', 'e'];
     axes.forEach(function (axis) {
         container.appendChild(createResizeHandle(container, verticalTarget, blockKey, axis));
     });
