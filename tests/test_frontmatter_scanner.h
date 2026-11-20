@@ -45,8 +45,11 @@ inline void testFrontmatterScannerAndSidecarParity() {
             const QString emptyDoc = QStringLiteral("---\n---\n# Empty");
             assert(FrontmatterScanner::strip(emptyDoc) == QStringLiteral("# Empty"));
 
-            const QString commentDoc = QStringLiteral("---\n# enable liquid\n---\n# Liquid");
+            const QString commentDoc = QStringLiteral("---\n# enable liquid\n# second comment\n\n---\n# Liquid");
             assert(FrontmatterScanner::strip(commentDoc) == QStringLiteral("# Liquid"));
+
+            const QString spacedDoc = QStringLiteral("---\n\n# section comment\n# detail comment\nlayout: post\n---\n# Spaced");
+            assert(FrontmatterScanner::strip(spacedDoc) == QStringLiteral("# Spaced"));
         });
 
         it("ignores indented triple dashes inside multiline yaml scalars", [&]() {
