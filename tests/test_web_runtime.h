@@ -69,7 +69,7 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
             templateFile.close();
 
             assert(html.contains("styles/obsidian.css"));
-            assert(html.contains("src/render.js"));
+            assert(html.contains("dist/render.js"));
             assert(html.contains("vendor/markdown-it/markdown-it.min.js"));
             assert(html.contains("vendor/katex/katex.min.css"));
             assert(html.contains("vendor/highlight/github-dark.min.css"));
@@ -88,8 +88,8 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
         it("guarantees canonical asset paths and excludes duplicate aliases in virtual filesystem", [&]() {
             assert(QFile::exists(":/web/styles/obsidian.css"));
             assert(QFileInfo(":/web/styles/obsidian.css").size() > 0);
-            assert(QFile::exists(":/web/src/render.js"));
-            assert(QFileInfo(":/web/src/render.js").size() > 0);
+            assert(QFile::exists(":/web/dist/render.js"));
+            assert(QFileInfo(":/web/dist/render.js").size() > 0);
             assert(QFile::exists(":/web/vendor/qt/qwebchannel.js"));
             assert(QFile::exists(":/web/vendor/katex/katex.min.css"));
             assert(QFileInfo(":/web/vendor/katex/katex.min.css").size() > 0);
@@ -105,6 +105,7 @@ inline void testWorkspaceModularizationAndEngineHierarchy(MarkdApplication& app)
             assert(QFile::exists(":/web/vendor/markdown-it/markdown-it-task-lists.min.js"));
             assert(QFile::exists(":/web/vendor/markdown-it/texmath.min.js"));
 
+            assert(!QFile::exists(":/web/src/render.js"));
             assert(!QFile::exists(":/web/js/mermaid.min.js"));
             assert(!QFile::exists(":/web/css/style.css"));
             assert(!QFile::exists(":/web/styles/style.css"));

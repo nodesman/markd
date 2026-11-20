@@ -23,7 +23,8 @@ public slots:
 signals:
     // Downlink Signals (Dispatched by C++ -> Received by Web runtime)
     void renderDocument(const QString& markdown, const QJsonObject& options = QJsonObject());
-    void navigateToHeading(const QString& headingId);
+    // behavior is "instant" for position restores (mode switch, first reveal) or "smooth" for user navigation.
+    void navigateToHeading(const QString& headingId, const QString& behavior);
     void setTheme(const QString& themeName);
     void scrollToRatio(qreal ratio);
 

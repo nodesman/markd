@@ -13,21 +13,24 @@ function createRenderEnvironment(options = {}) {
     const webDir = path.resolve(__dirname, '..');
     const obsidianCss = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
     const katexCss = fs.readFileSync(path.join(webDir, 'vendor/katex/katex.min.css'), 'utf8');
+    // Mirror the live page: its inline <style> and <body> come from template.html itself, so they cannot drift.
+    const template = fs.readFileSync(path.join(webDir, 'template.html'), 'utf8');
+    const templateStyle = template.match(/<style>[\s\S]*?<\/style>/)[0];
+    const templateBody = template.match(/<body[\s\S]*?<\/body>/)[0];
 
     const html = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    ${templateStyle}
     <style>${obsidianCss}</style>
     <style>${katexCss}</style>
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles/obsidian.css">
     <link rel="stylesheet" href="vendor/highlight/github-dark.min.css">
 </head>
-<body style="background-color: #050505;">
-    <article id="content"></article>
-</body>
+${templateBody}
 </html>`;
 
     const dom = new JSDOM(html, {
@@ -95,7 +98,7 @@ function createRenderEnvironment(options = {}) {
 
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
 
-    const renderPath = path.join(webDir, 'src/render.js');
+    const renderPath = path.join(webDir, 'dist/render.js');
     const renderSrc = fs.readFileSync(renderPath, 'utf8');
     const renderScript = new vm.Script(renderSrc, { filename: renderPath });
     renderScript.runInContext(dom.getInternalVMContext());
@@ -832,7 +835,7 @@ describe('render.js Native Node.js Test Suite', () => {
             win.eval('(function() { ' + fs.readFileSync(path.join(webDir, 'vendor/markdown-it/texmath.min.js'), 'utf8') + '\nwindow.texmath = texmath; })();');
             win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
 
-            const renderPath = path.join(webDir, 'src/render.js');
+            const renderPath = path.join(webDir, 'dist/render.js');
             const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
             renderScript.runInContext(dom.getInternalVMContext());
 
@@ -870,7 +873,7 @@ describe('render.js Native Node.js Test Suite', () => {
 
             Object.defineProperty(win.document, 'readyState', { value: 'complete', configurable: true });
 
-            const renderPath = path.join(webDir, 'src/render.js');
+            const renderPath = path.join(webDir, 'dist/render.js');
             const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
             renderScript.runInContext(dom.getInternalVMContext());
 
@@ -1732,7 +1735,7 @@ describe('render.js Native Node.js Test Suite', () => {
 
             assert.ok(dispatchedScroll !== null);
             assert.equal(typeof dispatchedScroll.top, 'number');
-            assert.equal(dispatchedScroll.behavior, 'smooth');
+            assert.equal(dispatchedScroll.behavior, 'instant');
         });
 
         it('handles scrollToRatio invalid inputs and boundary clamping', async () => {
@@ -2171,4 +2174,882 @@ describe('render.js Native Node.js Test Suite', () => {
     });
 });
 
+describe('Single-Reveal Contract', () => {
+    const webDir = path.resolve(__dirname, '..');
+    const tallMarkdown = '# Top\n\n' + Array.from({ length: 40 }, (_, i) => `Paragraph ${i}.`).join('\n\n') + '\n\n## Late Heading\n\nEnd.';
 
+    describe('Content visibility before and after render', () => {
+        it('starts the live page in the hydrating state', () => {
+            const env = createRenderEnvironment();
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), true);
+        });
+
+        it('reveals content by clearing the hydrating state after render', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('# Title\n\ntext');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+        });
+
+        it('clears the hydrating state after an empty render', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+        });
+
+        it('never restores the hydrating state on live re-renders', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown('# First');
+            await env.win.renderMarkdown('# Second');
+            assert.equal(env.doc.body.classList.contains('is-hydrating'), false);
+            assert.ok(env.doc.getElementById('content').textContent.includes('Second'));
+        });
+    });
+
+    describe('Reveal ordering', () => {
+        it('resolves scroll position before clearing the hydrating state', async () => {
+            const env = createRenderEnvironment();
+            let hydratingAtScroll = null;
+            env.win.scrollTo = () => { hydratingAtScroll = env.doc.body.classList.contains('is-hydrating'); };
+            await env.win.renderMarkdown('# Ordered');
+            assert.equal(hydratingAtScroll, true);
+        });
+
+        it('notifies the bridge after the hydrating state clears', async () => {
+            const env = createRenderEnvironment();
+            let hydratingAtNotify = null;
+            env.win.markdBridge = { onDocumentRendered: () => { hydratingAtNotify = env.doc.body.classList.contains('is-hydrating'); } };
+            await env.win.renderMarkdown('# Notified');
+            assert.equal(hydratingAtNotify, false);
+        });
+
+        it('notifies the bridge before renderDocument resolves', async () => {
+            const env = createRenderEnvironment();
+            let reportedHeadings = -1;
+            env.win.markdBridge = { onDocumentRendered: (count) => { reportedHeadings = count; } };
+            await env.win.renderMarkdown('# One\n\n## Two');
+            assert.equal(reportedHeadings, 2);
+        });
+    });
+
+    describe('Scroll restoration without animation', () => {
+        it('opens a document at the top with no scroll options', async () => {
+            const env = createRenderEnvironment();
+            const calls = [];
+            env.win.scrollTo = (...args) => { calls.push(args); };
+            await env.win.renderMarkdown(tallMarkdown);
+            assert.deepEqual(calls, [[0, 0]]);
+        });
+
+        it('restores scroll ratio without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            let dispatched = null;
+            env.win.scrollTo = (opts) => { dispatched = opts; };
+            await env.win.renderMarkdown(tallMarkdown, { scrollRatio: 0.4 });
+            assert.equal(dispatched.behavior, 'instant');
+            env.win.scrollToRatio(0.9);
+            assert.equal(dispatched.behavior, 'instant');
+        });
+
+        it('restores preserved scroll offset without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            const calls = [];
+            env.win.scrollTo = (...args) => { calls.push(args); };
+            env.win.scrollY = 240;
+            await env.win.renderMarkdown(tallMarkdown, { preserveScroll: true });
+            assert.deepEqual(calls, [[0, 240]]);
+        });
+
+        it('jumps to targetHeading option without smooth animation', async () => {
+            const env = createRenderEnvironment();
+            let used = null;
+            env.win.Element.prototype.scrollIntoView = function (opts) { used = { id: this.id, behavior: opts.behavior }; };
+            await env.win.renderMarkdown(tallMarkdown, { targetHeading: 'late-heading' });
+            assert.deepEqual(used, { id: 'late-heading', behavior: 'instant' });
+        });
+
+        it('keeps smooth scrolling for heading navigation', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown(tallMarkdown);
+            let used = null;
+            env.win.Element.prototype.scrollIntoView = function (opts) { used = opts.behavior; };
+            env.win.scrollToHeading('late-heading');
+            assert.equal(used, 'smooth');
+        });
+    });
+
+    describe('Bridge heading navigation behavior', () => {
+        it('passes the bridge navigation behavior through to the heading scroll', async () => {
+            const env = createRenderEnvironment();
+            await env.win.renderMarkdown(tallMarkdown);
+            let navigate = null;
+            env.win.qt = { webChannelTransport: {} };
+            env.win.QWebChannel = function (transport, callback) {
+                callback({ objects: { markdBridge: { logMessage: () => {}, bridgeReady: () => {}, navigateToHeading: { connect: (fn) => { navigate = fn; } } } } });
+            };
+            env.win.eval('initQWebChannel()');
+            const used = [];
+            env.win.Element.prototype.scrollIntoView = function (opts) { used.push(opts.behavior); };
+            navigate('late-heading', 'instant');
+            navigate('top', 'smooth');
+            assert.deepEqual(used, ['instant', 'smooth']);
+        });
+    });
+
+    describe('Stylesheet reveal rules', () => {
+        it('declares no global smooth scroll on html or body', () => {
+            const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+            assert.equal(/scroll-behavior\s*:\s*smooth/.test(css), false);
+        });
+
+        it('keeps the hydrating rule inside the live template only', () => {
+            const template = fs.readFileSync(path.join(webDir, 'template.html'), 'utf8');
+            const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+            assert.match(template, /<body class="is-hydrating">/);
+            assert.match(template, /body\.is-hydrating #content\s*\{\s*opacity:\s*0;\s*\}/);
+            assert.equal(css.includes('is-hydrating'), false);
+            assert.equal(/#content[^{]*\{[^}]*opacity\s*:\s*0/.test(css), false);
+        });
+    });
+});
+
+describe('Frontmatter parsing, disclosure UI, and fail-open recovery', () => {
+    it('renders standard jekyll frontmatter as a collapsed details panel above markdown body', async () => {
+        const env = createRenderEnvironment();
+        const doc = [
+            '---',
+            'layout: post',
+            'title: "Markd: A Native Reader"',
+            'excerpt: {{ site.tagline }}',
+            'published: true',
+            'draft: false',
+            'tags: [macos, qt6]',
+            '---',
+            '',
+            '# Visible Heading',
+            '',
+            'Body paragraph.'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.open, false);
+        assert.match(details.querySelector('.markd-frontmatter-count').textContent, /6 fields/);
+        assert.match(details.querySelector('.markd-frontmatter-hint').textContent, /layout, title, excerpt, …/);
+        const chips = Array.from(details.querySelectorAll('.markd-frontmatter-chip')).map((el) => el.textContent);
+        assert.deepEqual(chips, ['macos', 'qt6']);
+        assert.equal(details.querySelectorAll('.markd-frontmatter-bool.is-false').length, 1);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Visible Heading');
+        assert.equal(env.win.document.querySelector('#content h2'), null);
+    });
+
+    it('accepts utf8 bom, crlf, trailing spaces, dot-dot-dot closer, single-quoted scalars, and single-char scalars', async () => {
+        const env = createRenderEnvironment();
+        const doc = '\uFEFF---   \r\n' +
+            "author: 'Raj'\r\n" +
+            'grade: A\r\n' +
+            '...\r\n' +
+            '# Clean Title';
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.match(details.querySelector('.markd-frontmatter-hint').textContent, /^author, grade$/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Clean Title');
+    });
+
+    it('renders empty and comment-only jekyll frontmatter without syntax warnings', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('---\n# enable liquid\n\n---\n# Liquid Body');
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.classList.contains('markd-frontmatter-error'), false);
+        assert.match(details.querySelector('.markd-frontmatter-empty').textContent, /0 fields/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Liquid Body');
+    });
+
+    it('parses zero-indent and indented block lists, nested blocks, multiline scalars with indented dashes, and truncates long values', async () => {
+        const env = createRenderEnvironment();
+        const longText = 'x'.repeat(540);
+        const doc = [
+            '---',
+            'tags:',
+            '- macos',
+            '- "cpp20"',
+            'categories:',
+            '  - systems',
+            '  - tools',
+            'summary: |',
+            '  Line one',
+            '  ---',
+            '  Line two',
+            '',
+            'seo:',
+            '  type: TechArticle',
+            'long_field: ' + longText,
+            '---',
+            '# Real Body'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.ok(details);
+        assert.equal(details.classList.contains('markd-frontmatter-error'), false);
+        const chips = Array.from(details.querySelectorAll('.markd-frontmatter-chip')).map((el) => el.textContent);
+        assert.deepEqual(chips, ['macos', 'cpp20', 'systems', 'tools']);
+        const nestedBlocks = Array.from(details.querySelectorAll('.markd-frontmatter-nested')).map((el) => el.textContent);
+        assert.equal(nestedBlocks.length, 2);
+        assert.match(nestedBlocks[0], /---/);
+        assert.match(nestedBlocks[1], /type: TechArticle/);
+        const vals = Array.from(details.querySelectorAll('.markd-frontmatter-val')).map((el) => el.textContent);
+        const truncated = vals.find((v) => v.startsWith('xxxx'));
+        assert.equal(truncated.length, 501);
+        assert.equal(truncated.endsWith('…'), true);
+    });
+
+    it('neutralizes html and script payloads inside frontmatter values', async () => {
+        const env = createRenderEnvironment();
+        const doc = [
+            '---',
+            'title: <img src=x onerror=alert(1)>',
+            '---',
+            '# Safe Body'
+        ].join('\n');
+        await env.win.renderMarkdown(doc);
+        assert.equal(env.win.document.querySelector('#content img'), null);
+        const val = env.win.document.querySelector('.markd-frontmatter-val').textContent;
+        assert.match(val, /<img src=x onerror=alert\(1\)>/);
+    });
+
+    it('preserves expanded details open state across live hot-reload renders', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('---\ntitle: First\n---\n# Body');
+        const details = env.win.document.querySelector('#content > details.markd-frontmatter');
+        details.open = true;
+        await env.win.renderMarkdown('---\ntitle: Updated\n---\n# Body');
+        const rerendered = env.win.document.querySelector('#content > details.markd-frontmatter');
+        assert.equal(rerendered.open, true);
+        assert.match(rerendered.textContent, /Updated/);
+    });
+
+    it('leaves broken opening fences, unclosed frontmatter, and decorative top horizontal rules as ordinary markdown', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown('--\nlayout: post\n---\n# After');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nlayout: post\ntitle: Unclosed\n\nBody');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nlayout: post\n\n# Chapter 1\n\nReal prose\n\n---\n## Chapter 2');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Chapter 1');
+
+        await env.win.renderMarkdown('---\n\n# Chapter 1\n\nOpening prose\n\n---\n## Chapter 2');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---\nJust plain text\n---\n# After');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+
+        await env.win.renderMarkdown('---');
+        assert.equal(env.win.document.querySelector('.markd-frontmatter'), null);
+    });
+
+    it('fails open with highlighted raw yaml on syntax errors while rendering body normally', async () => {
+        const env = createRenderEnvironment();
+
+        // Top-level tab indent
+        await env.win.renderMarkdown('---\nlayout: post\n\tbad: true\n\n---\n# Body');
+        let errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.ok(errDetails);
+        assert.equal(errDetails.open, true);
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Tab indentation.*line 3/);
+        assert.equal(env.win.document.querySelector('#content h1').textContent, 'Body');
+
+        // Nested block tab indent
+        await env.win.renderMarkdown('---\nseo:\n\ttype: Article\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Tab indentation.*line 3/);
+
+        // Missing colon
+        await env.win.renderMarkdown('---\nlayout: post\nmissing colon here\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Expected "key: value".*line 3/);
+
+        // Unclosed double quote
+        await env.win.renderMarkdown('---\nlayout: post\ntitle: "unclosed\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed quoted string.*line 3/);
+
+        // Unclosed single quote (length 1)
+        await env.win.renderMarkdown("---\nlayout: post\ntitle: '\n---\n# Body");
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed quoted string.*line 3/);
+
+        // Unclosed array bracket
+        await env.win.renderMarkdown('---\nlayout: post\ntags: [macos, qt6\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed array bracket.*line 3/);
+
+        // Unclosed inline brace
+        await env.win.renderMarkdown('---\nlayout: post\nseo: { type: Article\n---\n# Body');
+        errDetails = env.win.document.querySelector('details.markd-frontmatter-error');
+        assert.match(errDetails.querySelector('.markd-frontmatter-error-bar').textContent, /Unclosed inline brace.*line 3/);
+    });
+
+    it('hides frontmatter disclosure chrome in print stylesheet', () => {
+        const webDir = path.resolve(__dirname, '..');
+        const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+        assert.match(css, /@media print[\s\S]*\.markd-frontmatter[\s\S]*display:\s*none\s*!important/);
+    });
+});
+
+describe('Inline Horizontal & Vertical Block Expansion', () => {
+    const sampleDoc = [
+        '# Architecture Overview',
+        '',
+        'Leading prose paragraph stays in normal column flow.',
+        '',
+        '```mermaid',
+        'graph LR',
+        '    A[Client] --> B[Gateway] --> C[Engine]',
+        '```',
+        '',
+        '| Service | Latency | Throughput | Region |',
+        '| --- | --- | --- | --- |',
+        '| Edge | 4ms | 50k/s | eu-west |',
+        '',
+        '```js',
+        'const wideLine = "abcdefghijklmnopqrstuvwxyz0123456789";',
+        '```',
+        '',
+        'Trailing prose paragraph follows naturally below.'
+    ].join('\n');
+
+    it('mounts horizontal and vertical handles on mermaid containers and horizontal handles on tables and code cards', async () => {
+        const env = createRenderEnvironment();
+        await env.win.renderMarkdown(sampleDoc);
+
+        const mermaidContainer = env.doc.querySelector('#content .expandable-container');
+        const tableWrapper = env.doc.querySelector('#content .table-wrapper');
+        const codeCard = env.doc.querySelector('#content .code-block-card');
+
+        const mermaidAxes = Array.from(mermaidContainer.querySelectorAll('.block-resize-handle'))
+            .map((el) => el.getAttribute('data-resize-axis'));
+        assert.deepEqual(mermaidAxes, ['n', 'w', 'e', 's', 'nw', 'ne', 'sw', 'se']);
+
+        const tableAxes = Array.from(tableWrapper.querySelectorAll('.block-resize-handle'))
+            .map((el) => el.getAttribute('data-resize-axis'));
+        assert.deepEqual(tableAxes, ['w', 'e']);
+
+        const codeAxes = Array.from(codeCard.querySelectorAll('.block-resize-handle'))
+            .map((el) => el.getAttribute('data-resize-axis'));
+        assert.deepEqual(codeAxes, ['w', 'e']);
+
+        // Calling attachCodeBlockResizeHandles again does not duplicate handles
+        env.win.attachCodeBlockResizeHandles();
+        assert.equal(codeCard.querySelectorAll('.block-resize-handle').length, 2);
+    });
+
+    it('expands mermaid container symmetrically from center on east and west drags within viewport bounds', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        container.getBoundingClientRect = () => ({ width: 700, height: 340, top: 0, left: 0, right: 700, bottom: 340 });
+
+        // Drag east handle +100px -> symmetric +200px => 900px
+        const east = container.querySelector('.block-resize-handle-e');
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 500, clientY: 200 }));
+        assert.equal(container.classList.contains('is-resizing'), true);
+        assert.equal(env.doc.body.classList.contains('is-block-resizing'), true);
+
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 200 }));
+        assert.equal(container.style.width, '900px');
+        assert.equal(container.classList.contains('is-resized-x'), true);
+
+        // Clamp at max width (1400 - 48 = 1352px)
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 1200, clientY: 200 }));
+        assert.equal(container.style.width, '1352px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        assert.equal(container.classList.contains('is-resizing'), false);
+        assert.equal(env.doc.body.classList.contains('is-block-resizing'), false);
+
+        // Drag west handle -75px -> symmetric +150px from 700px => 850px, then clamp to min 420px
+        const west = container.querySelector('.block-resize-handle-w');
+        west.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 200 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 225, clientY: 200 }));
+        assert.equal(container.style.width, '850px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 200 }));
+        assert.equal(container.style.width, '420px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Fallback viewport dimensions when innerWidth/innerHeight are zero
+        Object.defineProperty(env.win, 'innerWidth', { value: 0, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 0, configurable: true });
+        container.getBoundingClientRect = () => ({ width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
+        const se = container.querySelector('.block-resize-handle-se');
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 300 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 450, clientY: 400 }));
+        assert.equal(container.style.width, '764px');
+        assert.equal(container.querySelector('.mermaid-viewport').style.height, '420px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    it('resizes mermaid viewport height and corners in place without mutating zoom scale or pan coordinates', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1440, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 1000, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const viewport = container.querySelector('.mermaid-viewport');
+        const inner = container.querySelector('.mermaid-inner');
+        const label = container.querySelector('.zoom-label');
+
+        // Apply custom zoom (125%) and pan (40px, 25px) before resizing
+        container.querySelector('.zoom-in-btn').click();
+        viewport.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 140, clientY: 125 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        const transformBeforeResize = inner.style.transform;
+        assert.equal(label.textContent, '125%');
+        assert.equal(transformBeforeResize, 'translate(40px,25px) scale(1.25)');
+
+        viewport.getBoundingClientRect = () => ({ width: 664, height: 300, top: 0, left: 0, right: 664, bottom: 300 });
+        container.getBoundingClientRect = () => ({ width: 664, height: 340, top: 0, left: 0, right: 664, bottom: 340 });
+
+        // South handle drag +180px -> 480px height; width remains untouched
+        const south = container.querySelector('.block-resize-handle-s');
+        south.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 580 }));
+        assert.equal(viewport.style.height, '480px');
+        assert.equal(container.style.width, '');
+        assert.equal(container.classList.contains('is-resized-y'), true);
+
+        // Clamp vertical height to [220px, 85vh = 850px]
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 1400 }));
+        assert.equal(viewport.style.height, '850px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 50 }));
+        assert.equal(viewport.style.height, '220px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Southwest corner drag expands width and height simultaneously
+        const sw = container.querySelector('.block-resize-handle-sw');
+        sw.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 550 }));
+        assert.equal(container.style.width, '864px');
+        assert.equal(viewport.style.height, '450px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Zoom and pan remain completely intact
+        assert.equal(label.textContent, '125%');
+        assert.equal(inner.style.transform, transformBeforeResize);
+
+        // Surrounding prose stays in normal document flow
+        const paragraphs = env.doc.querySelectorAll('#content > p');
+        assert.equal(paragraphs.length, 2);
+        assert.equal(paragraphs[0].style.position, '');
+        assert.equal(paragraphs[1].style.position, '');
+    });
+
+    it('snaps dimensions back on handle double-click while keeping zoom and resets both via toolbar reset', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1440, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const viewport = container.querySelector('.mermaid-viewport');
+        const label = container.querySelector('.zoom-label');
+
+        container.querySelector('.zoom-in-btn').click();
+        assert.equal(label.textContent, '125%');
+
+        const se = container.querySelector('.block-resize-handle-se');
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 500, clientY: 520 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        assert.equal(container.classList.contains('is-resized-x'), true);
+        assert.equal(container.classList.contains('is-resized-y'), true);
+
+        // Double-click handle resets box dimensions only; zoom stays 125%
+        se.dispatchEvent(new env.win.MouseEvent('dblclick', { bubbles: true }));
+        assert.equal(container.style.width, '');
+        assert.equal(viewport.style.height, '');
+        assert.equal(container.classList.contains('is-resized-x'), false);
+        assert.equal(container.classList.contains('is-resized-y'), false);
+        assert.equal(label.textContent, '125%');
+
+        // Resize again and click toolbar reset button -> resets both zoom and size
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 480, clientY: 480 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        container.querySelector('.zoom-reset-btn').click();
+        assert.equal(label.textContent, '100%');
+        assert.equal(container.style.width, '');
+        assert.equal(viewport.style.height, '');
+    });
+
+    it('expands wide tables and code cards horizontally and resets on handle double-click', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const tableWrapper = env.doc.querySelector('#content .table-wrapper');
+        const tableEast = tableWrapper.querySelector('.block-resize-handle-e');
+        tableEast.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 500, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 620, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        assert.equal(tableWrapper.style.width, '904px');
+        assert.equal(tableWrapper.classList.contains('is-resized-x'), true);
+
+        tableEast.dispatchEvent(new env.win.MouseEvent('dblclick', { bubbles: true }));
+        assert.equal(tableWrapper.style.width, '');
+        assert.equal(tableWrapper.classList.contains('is-resized-x'), false);
+
+        const codeCard = env.doc.querySelector('#content .code-block-card');
+        const codeWest = codeCard.querySelector('.block-resize-handle-w');
+        codeWest.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        assert.equal(codeCard.style.width, '864px');
+        assert.equal(codeCard.classList.contains('is-resized-x'), true);
+
+        codeWest.dispatchEvent(new env.win.MouseEvent('dblclick', { bubbles: true }));
+        assert.equal(codeCard.style.width, '');
+        assert.equal(codeCard.classList.contains('is-resized-x'), false);
+    });
+
+    it('preserves custom block dimensions across live hot-reloads and clears them for new documents', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 1000, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const se = container.querySelector('.block-resize-handle-se');
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 510, clientY: 530 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        const tableWrapper = env.doc.querySelector('#content .table-wrapper');
+        const tableEast = tableWrapper.querySelector('.block-resize-handle-e');
+        tableEast.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 490, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Simulate FSEvents hot-reload with preserveScroll: true
+        const updatedDoc = sampleDoc + '\n\nEdited paragraph.';
+        await env.win.renderMarkdown(updatedDoc, { preserveScroll: true });
+
+        const reloadedMermaid = env.doc.querySelector('#content .expandable-container');
+        const reloadedTable = env.doc.querySelector('#content .table-wrapper');
+        assert.equal(reloadedMermaid.style.width, '884px');
+        assert.equal(reloadedMermaid.querySelector('.mermaid-viewport').style.height, '450px');
+        assert.equal(reloadedTable.style.width, '844px');
+
+        // Theme reload with force: true preserves sizes too
+        await env.win.renderMarkdown(updatedDoc, { force: true });
+        assert.equal(env.doc.querySelector('#content .expandable-container').style.width, '884px');
+
+        // Loading a fresh document resets remembered block sizes
+        await env.win.renderMarkdown(sampleDoc);
+        const freshMermaid = env.doc.querySelector('#content .expandable-container');
+        assert.equal(freshMermaid.style.width, '');
+        assert.equal(freshMermaid.querySelector('.mermaid-viewport').style.height, '');
+    });
+
+    it('unbinds active resize listeners during cleanupDiagramListeners and window blur', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const east = container.querySelector('.block-resize-handle-e');
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 200 }));
+        assert.equal(container.classList.contains('is-resizing'), true);
+
+        // Teardown mid-drag cleanly unbinds mousemove and clears classes
+        env.win.cleanupDiagramListeners();
+        assert.equal(container.classList.contains('is-resizing'), false);
+        assert.equal(env.doc.body.classList.contains('is-block-resizing'), false);
+
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 200 }));
+        assert.equal(container.style.width, '');
+
+        // Window blur ends an active drag cleanly
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 200 }));
+        env.win.dispatchEvent(new env.win.Event('blur'));
+        assert.equal(container.classList.contains('is-resizing'), false);
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 200 }));
+        assert.equal(container.style.width, '');
+    });
+
+    it('opens fullview cleanly from resized blocks and hides resize handles in print styles', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const se = container.querySelector('.block-resize-handle-se');
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 500, clientY: 500 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        container.querySelector('.fullview-btn').click();
+        const modal = env.doc.querySelector('.fullview-overlay');
+        assert.ok(modal !== null);
+        assert.equal(modal.querySelector('.block-resize-handle'), null);
+        env.win.closeFullView(true);
+
+        const webDir = path.resolve(__dirname, '..');
+        const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+        assert.match(css, /\.is-resized-x\s*\{[\s\S]*left:\s*50%[\s\S]*transform:\s*translateX\(-50%\)[\s\S]*max-width:\s*min\(100vw,\s*max\(280px,\s*calc\(100vw\s*-\s*48px\)\)\)/);
+        assert.match(css, /body\.is-block-resizing\s*\*\s*\{[\s\S]*cursor:\s*inherit\s*!important/);
+        assert.match(css, /@media print[\s\S]*\.block-resize-handle[\s\S]*display:\s*none\s*!important/);
+        assert.match(css, /@media print[\s\S]*\.is-resized-x[\s\S]*width:\s*auto\s*!important[\s\S]*max-width:\s*100%\s*!important/);
+        assert.match(css, /@media print[\s\S]*\.mermaid-viewport[\s\S]*height:\s*auto\s*!important/);
+    });
+
+    it('ignores non-primary mouse buttons on resize handles and locks active drag cursor on body', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const north = container.querySelector('.block-resize-handle-n');
+        const west = container.querySelector('.block-resize-handle-w');
+        const east = container.querySelector('.block-resize-handle-e');
+        const south = container.querySelector('.block-resize-handle-s');
+        const nw = container.querySelector('.block-resize-handle-nw');
+        const ne = container.querySelector('.block-resize-handle-ne');
+        const sw = container.querySelector('.block-resize-handle-sw');
+        const se = container.querySelector('.block-resize-handle-se');
+
+        // Right-click and middle-click never start a resize drag
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, button: 2, clientX: 400, clientY: 200 }));
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, button: 1, clientX: 400, clientY: 200 }));
+        assert.equal(container.classList.contains('is-resizing'), false);
+        assert.equal(env.doc.body.classList.contains('is-block-resizing'), false);
+        assert.equal(env.doc.body.style.cursor, '');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 200 }));
+        assert.equal(container.style.width, '');
+
+        // Primary-button drag locks body cursor to axis direction and clears on release
+        const expectedCursors = [
+            [north, 'ns-resize'],
+            [west, 'ew-resize'],
+            [east, 'ew-resize'],
+            [south, 'ns-resize'],
+            [nw, 'nwse-resize'],
+            [ne, 'nesw-resize'],
+            [sw, 'nesw-resize'],
+            [se, 'nwse-resize']
+        ];
+        for (const [handle, expectedCursor] of expectedCursors) {
+            handle.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 200 }));
+            assert.equal(env.doc.body.style.cursor, expectedCursor);
+            env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+            assert.equal(env.doc.body.style.cursor, '');
+        }
+
+        // Teardown mid-drag also restores body cursor
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 200 }));
+        assert.equal(env.doc.body.style.cursor, 'ew-resize');
+        env.win.cleanupDiagramListeners();
+        assert.equal(env.doc.body.style.cursor, '');
+    });
+
+    it('resizes mermaid containers from top edge and top corners while keeping zoom, pan, and toolbar buttons unobstructed', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1440, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 1000, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const viewport = container.querySelector('.mermaid-viewport');
+        const inner = container.querySelector('.mermaid-inner');
+        const label = container.querySelector('.zoom-label');
+
+        // Apply custom zoom (125%) and pan (30px, 20px) before top-edge resize
+        container.querySelector('.zoom-in-btn').click();
+        viewport.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 100, clientY: 100 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 130, clientY: 120 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+        const transformBefore = inner.style.transform;
+        assert.equal(label.textContent, '125%');
+
+        viewport.getBoundingClientRect = () => ({ width: 664, height: 340, top: 0, left: 0, right: 664, bottom: 340 });
+        container.getBoundingClientRect = () => ({ width: 664, height: 380, top: 0, left: 0, right: 664, bottom: 380 });
+
+        // North edge drag upward (-120px) increases height (340 - (-120) = 460px); width stays untouched
+        const north = container.querySelector('.block-resize-handle-n');
+        north.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 350, clientY: 300 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 350, clientY: 180 }));
+        assert.equal(viewport.style.height, '460px');
+        assert.equal(container.style.width, '');
+        assert.equal(container.classList.contains('is-resized-y'), true);
+
+        // North edge drag downward (+90px) decreases height (340 - 90 = 250px) and clamps at 220px
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 350, clientY: 390 }));
+        assert.equal(viewport.style.height, '250px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 350, clientY: 600 }));
+        assert.equal(viewport.style.height, '220px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Northwest corner drag (-80px, -100px) increases width (+160px -> 824px) and height (+100px -> 440px)
+        const nw = container.querySelector('.block-resize-handle-nw');
+        nw.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 300 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 220, clientY: 200 }));
+        assert.equal(container.style.width, '824px');
+        assert.equal(viewport.style.height, '440px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Northeast corner drag (+100px, -60px) increases width (+200px -> 864px) and height (+60px -> 400px)
+        const ne = container.querySelector('.block-resize-handle-ne');
+        ne.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 500, clientY: 300 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 240 }));
+        assert.equal(container.style.width, '864px');
+        assert.equal(viewport.style.height, '400px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Zoom and pan remain intact and toolbar buttons stay interactive
+        assert.equal(label.textContent, '125%');
+        assert.equal(inner.style.transform, transformBefore);
+        container.querySelector('.zoom-in-btn').click();
+        assert.equal(label.textContent, '156%');
+        container.querySelector('.zoom-out-btn').click();
+        assert.equal(label.textContent, '125%');
+        container.querySelector('.fullview-btn').click();
+        assert.ok(env.doc.querySelector('.fullview-overlay') !== null);
+        env.win.closeFullView(true);
+
+        // Verify top-edge and top-corner CSS rules clear the toolbar button box
+        const webDir = path.resolve(__dirname, '..');
+        const css = fs.readFileSync(path.join(webDir, 'styles/obsidian.css'), 'utf8');
+        assert.match(css, /\.expandable-toolbar\s*\{[\s\S]*padding:\s*6px\s+12px\s+4px\s+12px/);
+        assert.match(css, /\.block-resize-handle-n\s*\{[\s\S]*top:\s*0[\s\S]*height:\s*6px[\s\S]*z-index:\s*6[\s\S]*cursor:\s*ns-resize/);
+        assert.match(css, /\.block-resize-handle-nw\s*\{[\s\S]*left:\s*0[\s\S]*top:\s*0[\s\S]*z-index:\s*7[\s\S]*cursor:\s*nwse-resize/);
+        assert.match(css, /\.block-resize-handle-ne\s*\{[\s\S]*right:\s*0[\s\S]*top:\s*0[\s\S]*z-index:\s*7[\s\S]*cursor:\s*nesw-resize/);
+    });
+
+    it('isolates resize mutations to the targeted diagram in a two-diagram document', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 1000, configurable: true });
+
+        const twoDiagramDoc = [
+            '```mermaid',
+            'graph LR',
+            '    A --> B',
+            '```',
+            '',
+            'Separator paragraph between diagrams.',
+            '',
+            '```mermaid',
+            'graph TD',
+            '    C --> D',
+            '```'
+        ].join('\n');
+
+        await env.win.renderMarkdown(twoDiagramDoc);
+
+        const containers = env.doc.querySelectorAll('#content .expandable-container');
+        assert.equal(containers.length, 2);
+
+        const first = containers[0];
+        const firstViewport = first.querySelector('.mermaid-viewport');
+        const second = containers[1];
+        const secondViewport = second.querySelector('.mermaid-viewport');
+
+        second.getBoundingClientRect = () => ({ width: 664, height: 340, top: 0, left: 0, right: 664, bottom: 340 });
+        secondViewport.getBoundingClientRect = () => ({ width: 664, height: 300, top: 0, left: 0, right: 664, bottom: 300 });
+
+        const secondNe = second.querySelector('.block-resize-handle-ne');
+        secondNe.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 500, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 600, clientY: 300 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        assert.equal(second.style.width, '864px');
+        assert.equal(secondViewport.style.height, '400px');
+        assert.equal(second.classList.contains('is-resized-x'), true);
+        assert.equal(second.classList.contains('is-resized-y'), true);
+
+        assert.equal(first.style.width, '');
+        assert.equal(firstViewport.style.height, '');
+        assert.equal(first.classList.contains('is-resized-x'), false);
+        assert.equal(first.classList.contains('is-resized-y'), false);
+    });
+
+    it('leaves sibling headings and paragraphs above and below with zero inline style mutations', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 1400, configurable: true });
+        Object.defineProperty(env.win, 'innerHeight', { value: 1000, configurable: true });
+
+        const proseAndDiagramDoc = [
+            '## Before Heading',
+            '',
+            'Paragraph immediately above diagram.',
+            '',
+            '```mermaid',
+            'graph LR',
+            '    X --> Y',
+            '```',
+            '',
+            '## After Heading',
+            '',
+            'Paragraph immediately below diagram.'
+        ].join('\n');
+
+        await env.win.renderMarkdown(proseAndDiagramDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        const se = container.querySelector('.block-resize-handle-se');
+        se.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 400, clientY: 400 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 550, clientY: 520 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        assert.equal(container.classList.contains('is-resized-x'), true);
+        assert.equal(container.classList.contains('is-resized-y'), true);
+
+        const siblings = env.doc.querySelectorAll('#content > p, #content > h2');
+        assert.equal(siblings.length, 4);
+        for (const node of siblings) {
+            assert.equal(node.getAttribute('style'), null);
+            assert.equal(node.style.cssText, '');
+        }
+    });
+
+    it('clamps block width safely without exceeding viewport width on narrow viewports under 420px', async () => {
+        const env = createRenderEnvironment();
+        Object.defineProperty(env.win, 'innerWidth', { value: 360, configurable: true });
+        await env.win.renderMarkdown(sampleDoc);
+
+        const container = env.doc.querySelector('#content .expandable-container');
+        container.getBoundingClientRect = () => ({ width: 312, height: 300, top: 0, left: 0, right: 312, bottom: 300 });
+
+        const east = container.querySelector('.block-resize-handle-e');
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 300, clientY: 200 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 500, clientY: 200 }));
+        assert.equal(container.style.width, '312px');
+        assert.ok(parseInt(container.style.width, 10) <= env.win.innerWidth);
+
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 50, clientY: 200 }));
+        assert.equal(container.style.width, '312px');
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Even narrower viewport (300px) still clamps cleanly at floor 280px <= 300px
+        Object.defineProperty(env.win, 'innerWidth', { value: 300, configurable: true });
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 250, clientY: 200 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 450, clientY: 200 }));
+        assert.equal(container.style.width, '280px');
+        assert.ok(parseInt(container.style.width, 10) <= env.win.innerWidth);
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+
+        // Sub-280px viewport (240px) caps at viewport width instead of overflowing at 280px
+        Object.defineProperty(env.win, 'innerWidth', { value: 240, configurable: true });
+        east.dispatchEvent(new env.win.MouseEvent('mousedown', { bubbles: true, clientX: 200, clientY: 200 }));
+        env.doc.dispatchEvent(new env.win.MouseEvent('mousemove', { bubbles: true, clientX: 400, clientY: 200 }));
+        assert.equal(container.style.width, '240px');
+        assert.ok(parseInt(container.style.width, 10) <= env.win.innerWidth);
+        env.doc.dispatchEvent(new env.win.MouseEvent('mouseup', { bubbles: true }));
+    });
+});

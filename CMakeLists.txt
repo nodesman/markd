@@ -32,6 +32,44 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test Network)
 
+set(WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web")
+set(WEB_RENDER_JS "${WEB_DIR}/dist/render.js")
+file(GLOB_RECURSE WEB_TS_SOURCES CONFIGURE_DEPENDS "${WEB_DIR}/src/*.ts")
+list(APPEND WEB_TS_SOURCES
+    "${WEB_DIR}/tsconfig.json"
+    "${WEB_DIR}/scripts/build_runtime.js"
+)
+
+find_program(WEB_NODE_EXECUTABLE node)
+set(WEB_TSC_EXECUTABLE "")
+if(WIN32 AND EXISTS "${WEB_DIR}/node_modules/.bin/tsc.cmd")
+    set(WEB_TSC_EXECUTABLE "${WEB_DIR}/node_modules/.bin/tsc.cmd")
+elseif(EXISTS "${WEB_DIR}/node_modules/.bin/tsc")
+    set(WEB_TSC_EXECUTABLE "${WEB_DIR}/node_modules/.bin/tsc")
+else()
+    find_program(WEB_GLOBAL_TSC tsc)
+    if(WEB_GLOBAL_TSC)
+        set(WEB_TSC_EXECUTABLE "${WEB_GLOBAL_TSC}")
+    endif()
+endif()
+
+if(WEB_NODE_EXECUTABLE AND WEB_TSC_EXECUTABLE)
+    add_custom_command(
+        OUTPUT "${WEB_RENDER_JS}"
+        COMMAND "${WEB_NODE_EXECUTABLE}" "${WEB_DIR}/scripts/build_runtime.js" --tsc "${WEB_TSC_EXECUTABLE}"
+        WORKING_DIRECTORY "${WEB_DIR}"
+        DEPENDS ${WEB_TS_SOURCES}
+        COMMENT "Compiling TypeScript web runtime (web/src -> web/dist/render.js)"
+        VERBATIM
+    )
+    add_custom_target(markd_web_runtime DEPENDS "${WEB_RENDER_JS}")
+elseif(NOT EXISTS "${WEB_RENDER_JS}")
+    message(FATAL_ERROR
+        "Compiled web runtime missing: ${WEB_RENDER_JS}\n"
+        "Run 'task build-web' (or 'cd web && npm install && npm run build') before configuring CMake."
+    )
+endif()
+
 include_directories(src)
 
 set(COMMON_SOURCES
@@ -42,6 +80,7 @@ set(COMMON_SOURCES
     src/app/SingleInstanceCoordinator.h
     src/app/SingleInstanceCoordinator.cpp
     src/core/Version.h
+    src/core/StartupPhaseTrace.h
     src/core/FileAssociationManager.h
     src/core/FileAssociationManager.cpp
     src/core/ProvenanceDetector.h
@@ -60,6 +99,8 @@ set(COMMON_SOURCES
     src/core/HtmlClipboardProvider.cpp
     src/core/TelemetryEngine.h
     src/core/TelemetryEngine.cpp
+    src/parser/FrontmatterScanner.h
+    src/parser/FrontmatterScanner.cpp
     src/parser/TocItem.h
     src/parser/TocParser.h
     src/parser/TocParser.cpp
@@ -72,8 +113,6 @@ set(COMMON_SOURCES
     src/ui/TocItemDelegate.h
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
-    src/ui/InstantPreviewSurface.h
-    src/ui/InstantPreviewSurface.cpp
     src/ui/WebEngineBackend.h
     src/ui/PreviewView.h
     src/ui/PreviewView.cpp
@@ -138,6 +177,9 @@ target_link_libraries(markd_webengine PRIVATE
 
 add_executable(markd ${SOURCES})
 add_dependencies(markd markd_webengine)
+if(TARGET markd_web_runtime)
+    add_dependencies(markd markd_web_runtime)
+endif()
 
 target_link_libraries(markd PRIVATE
     Qt6::Core
@@ -177,6 +219,9 @@ add_executable(test_cli
     src/ui/WebEngineBackend.cpp
     ${COMMON_SOURCES}
 )
+if(TARGET markd_web_runtime)
+    add_dependencies(test_cli markd_web_runtime)
+endif()
 
 target_compile_definitions(test_cli PRIVATE MARKD_STATIC_WEBENGINE_BACKEND)
 

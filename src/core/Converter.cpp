@@ -1,5 +1,6 @@
 #include "core/Converter.h"
 #include "core/HtmlClipboardProvider.h"
+#include "parser/FrontmatterScanner.h"
 #include <QFile>
 #include <QTextDocument>
 #include <QRegularExpression>
@@ -37,12 +38,13 @@ QString Converter::escapeHtml(const QString& unescaped)
 
 QString Converter::toHtmlFragment(const QString& markdown)
 {
-    QString shielded = markdown;
+    QString bodyMarkdown = FrontmatterScanner::strip(markdown);
+    QString shielded = bodyMarkdown;
     QStringList mathBlocks;
     static const QRegularExpression mathRegex(
         QStringLiteral("\\$\\$(.+?)\\$\\$|(?<!\\$)\\$([^\\$\\n]+?)\\$(?!\\$)"),
         QRegularExpression::DotMatchesEverythingOption);
-    QRegularExpressionMatchIterator it = mathRegex.globalMatch(markdown);
+    QRegularExpressionMatchIterator it = mathRegex.globalMatch(bodyMarkdown);
     while (it.hasNext()) {
         mathBlocks.append(it.next().captured(0));
     }

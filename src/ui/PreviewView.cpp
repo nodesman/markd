@@ -1,7 +1,7 @@
 #include "ui/PreviewView.h"
-#include "ui/InstantPreviewSurface.h"
 #include "ui/WebEngineBackend.h"
 #include "core/DocumentSession.h"
+#include "core/StartupPhaseTrace.h"
 #include <QApplication>
 #include <QChildEvent>
 #include <QCoreApplication>
@@ -10,8 +10,10 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLabel>
 #include <QLibrary>
 #include <QNativeGestureEvent>
+#include <QPalette>
 #include <QShowEvent>
 #include <QStackedLayout>
 #include <QTimer>
@@ -22,6 +24,24 @@
 #include <cmath>
 
 namespace {
+
+struct BackendFactoryOverride {
+    bool active = false;
+    CreateWebEngineBackendFn factory = nullptr;
+    QString failureReason;
+};
+
+BackendFactoryOverride& backendFactoryOverride()
+{
+    static BackendFactoryOverride s_override;
+    return s_override;
+}
+
+QString& lastPluginLoadError()
+{
+    static QString s_error;
+    return s_error;
+}
 
 #if !defined(MARKD_STATIC_WEBENGINE_BACKEND)
 QLibrary* loadWebEnginePlugin()
@@ -46,6 +66,7 @@ QLibrary* loadWebEnginePlugin()
             s_lib = candidateLib;
             return s_lib;
         }
+        lastPluginLoadError() = candidateLib->errorString();
         delete candidateLib;
     }
 
@@ -54,6 +75,7 @@ QLibrary* loadWebEnginePlugin()
         s_lib = fallbackLib;
         return s_lib;
     }
+    if (lastPluginLoadError().isEmpty()) lastPluginLoadError() = fallbackLib->errorString();
     delete fallbackLib;
     return nullptr;
 }
@@ -61,6 +83,7 @@ QLibrary* loadWebEnginePlugin()
 
 CreateWebEngineBackendFn resolveBackendFactory()
 {
+    if (backendFactoryOverride().active) return backendFactoryOverride().factory;
 #if defined(MARKD_STATIC_WEBENGINE_BACKEND)
     return &markdCreateWebEngineBackend;
 #else
@@ -79,6 +102,22 @@ SharedWebEngineProfileFn resolveProfileFactory()
 #endif
 }
 
+QString backendFailureReason()
+{
+    if (!backendFactoryOverride().failureReason.isEmpty()) return backendFactoryOverride().failureReason;
+    return lastPluginLoadError().isEmpty() ? QObject::tr("libmarkd_webengine could not be found") : lastPluginLoadError();
+}
+
+// Keeps a scroll ratio requested before the bridge was ready, unless the new options bring their own.
+QJsonObject withBufferedScrollRatio(const QJsonObject& options, const QJsonObject& previous)
+{
+    const QString key = QStringLiteral("scrollRatio");
+    if (options.contains(key) || !previous.contains(key)) return options;
+    QJsonObject merged = options;
+    merged[key] = previous.value(key);
+    return merged;
+}
+
 } // namespace
 
 PreviewView::PreviewView(QWidget* parent)
@@ -93,12 +132,15 @@ PreviewView::PreviewView(DocumentSession* session, QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(0, 0);
 
+    // Obsidian canvas until the web view's own #050505 page paints over it.
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, QColor("#050505"));
+    setPalette(pal);
+    setAutoFillBackground(true);
+
     m_stackLayout = new QStackedLayout(this);
     m_stackLayout->setContentsMargins(0, 0, 0, 0);
     m_stackLayout->setStackingMode(QStackedLayout::StackAll);
-
-    m_instantSurface = new InstantPreviewSurface(this);
-    m_stackLayout->addWidget(m_instantSurface);
 
     m_bridge = new WebBridge(this);
     m_channel = new QWebChannel(this);
@@ -110,10 +152,6 @@ PreviewView::PreviewView(DocumentSession* session, QWidget* parent)
     wireBridgeSignals();
 
     installEventFilter(this);
-    m_instantSurface->installEventFilter(this);
-    if (m_instantSurface->viewport()) {
-        m_instantSurface->viewport()->installEventFilter(this);
-    }
 
     if (!m_session->markdown().isEmpty()) {
         setMarkdown(m_session->markdown());
@@ -132,6 +170,16 @@ QWebEngineProfile* PreviewView::sharedPreviewProfile()
     return fn ? fn() : nullptr;
 }
 
+void PreviewView::overrideBackendFactory(CreateWebEngineBackendFn factory, const QString& failureReason)
+{
+    backendFactoryOverride() = BackendFactoryOverride{true, factory, failureReason};
+}
+
+void PreviewView::clearBackendFactoryOverride()
+{
+    backendFactoryOverride() = BackendFactoryOverride{};
+}
+
 QWebEngineView* PreviewView::webView() const
 {
     const_cast<PreviewView*>(this)->ensureWebEngineInitialized();
@@ -141,6 +189,7 @@ QWebEngineView* PreviewView::webView() const
 void PreviewView::wireBridgeSignals()
 {
     connect(m_bridge, &WebBridge::bridgeInitialized, this, [this]() {
+        StartupPhaseTrace::mark("bridge_ready");
         m_bridgeReady = true;
         emit bridgeInitialized();
         if (m_session && !m_session->theme().isEmpty()) {
@@ -175,8 +224,9 @@ void PreviewView::wireBridgeSignals()
         emit activeHeadingChanged(id);
     });
     connect(m_bridge, &WebBridge::documentRendered, this, [this](int headingCount) {
+        StartupPhaseTrace::mark("content_revealed");
         m_renderedMarkdown = m_currentMarkdown;
-        completeInstantSurfaceSwap();
+        applyDeferredRequestsOnFirstReveal();
         emit documentRendered(headingCount);
     });
 }
@@ -228,75 +278,81 @@ void PreviewView::pollCocoaExposeThenHydrate(int remainingTicks)
 
 void PreviewView::ensureWebEngineInitialized()
 {
-    if (m_backend) return;
+    if (m_backend || m_loadFailureLabel) return;
     CreateWebEngineBackendFn factory = resolveBackendFactory();
-    if (!factory) return;
+    StartupPhaseTrace::mark("plugin_loaded");
+    if (!factory) {
+        showLoadFailure(backendFailureReason());
+        return;
+    }
+    // Tracing only: create the shared profile first so its cost is timed apart; the backend reuses it.
+    SharedWebEngineProfileFn profileFactory = StartupPhaseTrace::enabled() ? resolveProfileFactory() : nullptr;
+    if (profileFactory) {
+        profileFactory();
+        StartupPhaseTrace::mark("profile_created");
+    }
 
     m_backend = factory(m_channel, this);
-    if (!m_backend) return;
+    if (!m_backend) {
+        showLoadFailure(backendFailureReason());
+        return;
+    }
 
     m_backend->applyZoom(m_zoomFactor);
     connect(m_backend, &WebEngineBackend::searchMatchReady, this, &PreviewView::findResult);
     connect(m_backend, &WebEngineBackend::pdfExportCompleted, this, &PreviewView::pdfPrintingFinished);
     connect(m_backend, &WebEngineBackend::pageLoadFinished, this, [this](bool ok) {
+        StartupPhaseTrace::mark("template_loaded");
         m_pageLoaded = ok;
         if (!ok) m_bridgeReady = false;
         installWebViewEventFilters();
     });
 
+    // QStackedLayout hands focus to the newly current view if the preview held it.
     if (QWidget* view = m_backend->viewWidget()) {
         m_stackLayout->addWidget(view);
-    }
-    if (m_showingInstantSurface && m_instantSurface) {
-        m_instantSurface->raise();
     }
     installWebViewEventFilters();
     m_backend->openUrl(QUrl(QStringLiteral("qrc:/web/template.html")));
 }
 
-void PreviewView::completeInstantSurfaceSwap()
+void PreviewView::showLoadFailure(const QString& reason)
 {
-    if (!m_showingInstantSurface) return;
-    const double ratio = m_instantSurface ? m_instantSurface->verticalScrollRatio() : 0.0;
-    const bool restoreFocus = m_instantSurface && m_instantSurface->hasFocus();
+    m_loadFailureLabel = new QLabel(tr("Preview engine failed to load: %1").arg(reason), this);
+    m_loadFailureLabel->setObjectName(QStringLiteral("previewLoadFailure"));
+    m_loadFailureLabel->setAlignment(Qt::AlignCenter);
+    m_loadFailureLabel->setWordWrap(true);
+    m_loadFailureLabel->setStyleSheet(QStringLiteral("QLabel { color: #8b949e; background-color: #050505; padding: 24px; }"));
+    m_stackLayout->addWidget(m_loadFailureLabel);
+    m_loadFailureLabel->raise();
+}
 
-    m_showingInstantSurface = false;
-    if (m_instantSurface) {
-        m_instantSurface->hide();
-    }
-    if (m_backend) {
-        m_backend->applyZoom(m_zoomFactor);
-    }
+void PreviewView::applyDeferredRequestsOnFirstReveal()
+{
+    if (m_revealed) return;
+    m_revealed = true;
     if (!m_pendingHeadingId.isEmpty() && m_bridgeReady) {
         const QString target = m_pendingHeadingId;
         m_pendingHeadingId.clear();
-        emit m_bridge->navigateToHeading(target);
-    }
-    if (m_pendingHeadingId.isEmpty() && ratio > 0.0 && m_bridgeReady) {
-        emit m_bridge->scrollToRatio(ratio);
+        emit m_bridge->navigateToHeading(target, QStringLiteral("instant"));
     }
     if (!m_lastFindText.isEmpty() && m_backend) {
         m_backend->searchInPage(m_lastFindText, true, m_lastFindCaseSensitive);
-    }
-    if (restoreFocus && m_backend && m_backend->viewWidget()) {
-        m_backend->viewWidget()->setFocus(Qt::OtherFocusReason);
     }
 }
 
 void PreviewView::focusPreviewSurface()
 {
-    if (!m_showingInstantSurface && m_backend && m_backend->viewWidget()) {
+    if (m_backend && m_backend->viewWidget()) {
         m_backend->viewWidget()->setFocus(Qt::OtherFocusReason);
         return;
     }
-    if (m_instantSurface) {
-        m_instantSurface->setFocus(Qt::OtherFocusReason);
-    }
+    setFocus(Qt::OtherFocusReason);
 }
 
 bool PreviewView::hasPreviewFocus() const
 {
-    if (m_instantSurface && m_instantSurface->hasFocus()) return true;
+    if (hasFocus()) return true;
     if (m_backend && m_backend->holdsViewportFocus()) return true;
     QWidget* focused = QApplication::focusWidget();
     return focused && isAncestorOf(focused);
@@ -304,23 +360,15 @@ bool PreviewView::hasPreviewFocus() const
 
 void PreviewView::copySelection()
 {
-    if (!m_showingInstantSurface && m_backend) {
+    if (m_backend) {
         m_backend->copySelectedContent();
-        return;
-    }
-    if (m_instantSurface) {
-        m_instantSurface->copySelection();
     }
 }
 
 void PreviewView::selectAllContent()
 {
-    if (!m_showingInstantSurface && m_backend) {
+    if (m_backend) {
         m_backend->selectAllPageContent();
-        return;
-    }
-    if (m_instantSurface) {
-        m_instantSurface->selectAllContent();
     }
 }
 
@@ -423,10 +471,6 @@ void PreviewView::setMarkdown(const QString& markdown, bool preserveScroll)
 
 void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& options)
 {
-    if (m_showingInstantSurface && m_instantSurface && m_lastInstantMarkdown != markdown) {
-        m_lastInstantMarkdown = markdown;
-        m_instantSurface->renderMarkdown(markdown, m_session ? m_session->filePath() : QString());
-    }
     if (m_bridgeReady && m_currentMarkdown == markdown && options.isEmpty()) {
         return;
     }
@@ -437,8 +481,8 @@ void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& option
         m_renderedMarkdown.clear();
     }
     if (!m_bridgeReady) {
+        m_pendingOptions = withBufferedScrollRatio(options, m_pendingOptions);
         m_pendingMarkdown = markdown;
-        m_pendingOptions = options;
         return;
     }
     m_currentMarkdown = markdown;
@@ -447,23 +491,20 @@ void PreviewView::setMarkdown(const QString& markdown, const QJsonObject& option
 
 void PreviewView::scrollToRatio(qreal ratio)
 {
-    if (m_showingInstantSurface && m_instantSurface) {
-        m_instantSurface->setVerticalScrollRatio(static_cast<double>(ratio));
-    }
     if (m_bridgeReady) {
         emit m_bridge->scrollToRatio(ratio);
+        return;
     }
+    m_pendingOptions[QStringLiteral("scrollRatio")] = ratio;
 }
 
-void PreviewView::scrollToHeading(const QString& id)
+void PreviewView::scrollToHeading(const QString& id, bool instant)
 {
-    if (m_showingInstantSurface && m_instantSurface) {
-        m_pendingHeadingId = id;
-        m_instantSurface->scrollToAnchorName(id);
-    }
     if (m_bridgeReady) {
-        emit m_bridge->navigateToHeading(id);
+        emit m_bridge->navigateToHeading(id, instant ? QStringLiteral("instant") : QStringLiteral("smooth"));
+        return;
     }
+    m_pendingHeadingId = id;
 }
 
 void PreviewView::setTheme(const QString& themeName)
@@ -476,9 +517,6 @@ void PreviewView::setTheme(const QString& themeName)
 void PreviewView::setZoomFactor(qreal factor)
 {
     m_zoomFactor = std::clamp(factor, 0.25, 3.0);
-    if (m_instantSurface) {
-        m_instantSurface->applyZoomFactor(m_zoomFactor);
-    }
     if (m_backend) {
         m_backend->applyZoom(m_zoomFactor);
     }
@@ -491,12 +529,6 @@ void PreviewView::findText(const QString& text, bool forward, bool caseSensitive
 
     if (text.isEmpty()) {
         clearFind();
-        return;
-    }
-    if (m_showingInstantSurface && m_instantSurface && !m_backend) {
-        const bool found = m_instantSurface->findString(text, !forward, caseSensitive);
-        const int total = found ? m_instantSurface->countOccurrences(text, caseSensitive) : 0;
-        emit findResult(found ? 1 : 0, total);
         return;
     }
     if (m_backend) {
@@ -521,9 +553,6 @@ void PreviewView::findPrevious()
 void PreviewView::clearFind()
 {
     m_lastFindText.clear();
-    if (m_instantSurface) {
-        m_instantSurface->findString(QString());
-    }
     if (m_backend) {
         m_backend->clearSearchHighlights();
     }

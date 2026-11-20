@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Markd pre-push startup check (Task 8.12.8): blocks a push when the startup benchmark fails.
+# Drift warnings print but don't block. Emergency bypass: git push --no-verify
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+BENCHMARK_CMD="${MARKD_PRE_PUSH_BENCHMARK_CMD:-task benchmark}"
+
+echo "pre-push: running startup benchmark (${BENCHMARK_CMD}); emergency bypass: git push --no-verify"
+if ! (cd "$ROOT" && bash -c "$BENCHMARK_CMD"); then
+    echo "pre-push: startup benchmark FAILED; push blocked." >&2
+    exit 1
+fi
+echo "pre-push: startup benchmark passed."

@@ -11,6 +11,7 @@
 #include "test_platform_frame.h"
 #include "test_mode_switcher.h"
 #include "test_converter_pipeline.h"
+#include "test_frontmatter_scanner.h"
 #include "test_dual_viewports.h"
 #include "test_toc_sidebar.h"
 #include "test_sidebar_toggle.h"
@@ -40,6 +41,7 @@ int main(int argc, char* argv[]) {
     testPlatformFrame(app);
     testModeSwitcher(app);
     testConverterPipeline();
+    testFrontmatterScannerAndSidecarParity();
     testDualViewports(app);
     testTocSidebar(app);
     testSidebarToggleButton(app);

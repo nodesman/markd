@@ -26,7 +26,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
     cssFile.close();
     assert(!css.isEmpty());
 
-    QFile jsFile(":/web/src/render.js");
+    QFile jsFile(":/web/dist/render.js");
     assert(jsFile.open(QIODevice::ReadOnly | QIODevice::Text));
     QString js = QString::fromUtf8(jsFile.readAll());
     jsFile.close();
@@ -220,6 +220,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
                 "<div class=\"expandable-container\">"
                 "<div class=\"expandable-toolbar\"><div class=\"mermaid-zoom-controls\"><button>+</button><button>-</button></div></div>"
                 "<div class=\"mermaid-viewport\"><svg><text>Diagram 1</text></svg></div>"
+                "<div class=\"block-resize-handle block-resize-handle-e\"></div>"
                 "</div>"
                 "<p>Between diagrams</p>"
                 "<div class=\"expandable-container\">"
@@ -253,6 +254,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
             assert(!articleBody.contains("fullview-overlay"));
             assert(!articleBody.contains("fullview-toolbar"));
             assert(!articleBody.contains("close-btn"));
+            assert(!articleBody.contains("block-resize-handle"));
         });
 
         it("exports latest edit buffer over stale preview dom and notifies status bar", [&]() {
@@ -267,9 +269,10 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
 
             win.setMode(MainWindow::Mode::Edit);
             win.editor()->setPlainText("# Intermediate Edit");
-            assert(win.previewView()->renderedMarkdown().isEmpty());
+            assert(win.previewView()->renderedMarkdown() != win.session()->markdown());
             win.editor()->setPlainText("# Fresh Edit Heading\n\n| Col |\n|:---:|\n| Val |");
-            assert(win.previewView()->renderedMarkdown().isEmpty());
+            // Edit mode leaves the hidden preview idle (Task 8.12.4); export detects the stale DOM by comparison.
+            assert(win.previewView()->renderedMarkdown() != win.session()->markdown());
 
             const QString exportPath = QDir::tempPath() + "/markd_stale_guard_export.html";
             QFile::remove(exportPath);

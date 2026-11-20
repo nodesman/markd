@@ -14,3 +14,4 @@ build_cov/
 *.profraw
 *.profdata
 Testing/
+dist/

@@ -14,9 +14,33 @@ tasks:
     cmds:
       - bash scripts/generate_icons.sh
 
+  web-deps:
+    desc: Ensure web TypeScript and test devDependencies are installed
+    internal: true
+    run: once
+    dir: web
+    cmds:
+      - "[ -x node_modules/.bin/tsc ] && [ -x node_modules/.bin/c8 ] && [ -d node_modules/jsdom ] || npm install --prefer-offline --no-audit --no-fund"
+
+  build-web:
+    desc: Compile TypeScript web runtime (web/src -> web/dist)
+    run: once
+    deps: [web-deps]
+    dir: web
+    cmds:
+      - npm run build
+
+  typecheck-web:
+    desc: Type-check TypeScript web runtime without emitting files
+    deps: [web-deps]
+    dir: web
+    cmds:
+      - npm run typecheck
+
   configure:
     desc: Configure Release CMake build for Markd with Qt 6.5.3
     run: once
+    deps: [build-web]
     cmds:
       - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DCMAKE_BUILD_TYPE=Release
 
@@ -34,21 +58,22 @@ tasks:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
   test-web:
-    desc: Run JavaScript test suite with Node.js
+    desc: Compile TypeScript web runtime and run web test suite with Node.js
+    deps: [web-deps]
     dir: web
     cmds:
-      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm test
 
   coverage-web:
-    desc: Run JavaScript test suite with c8 and verify 100% branch and line coverage
+    desc: Compile TypeScript web runtime and verify 100% branch and line coverage with c8
+    deps: [web-deps]
     dir: web
     cmds:
-      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm run test:coverage
 
   coverage-cpp:
     desc: Run C++ test suite and enforce >= 95% line coverage via LLVM source instrumentation
+    deps: [build-web]
     cmds:
       - cmake -B build_cov -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DENABLE_COVERAGE=ON
       - cmake --build build_cov -j8
@@ -63,7 +88,7 @@ tasks:
       - task: coverage-cpp
 
   calisthenics:
-    desc: Enforce 100/100 strict Object Calisthenics on new modules and non-degrading ratchet across src and web/src
+    desc: Enforce 100/100 strict Object Calisthenics on new modules, all of web/src, and non-degrading ratchet across src
     cmds:
       - |
         node -e '
@@ -75,10 +100,10 @@ tasks:
             "src/app/SingleInstanceCoordinator.cpp",
             "src/app/MarkdApplication.h",
             "src/app/MarkdApplication.cpp",
-            "src/ui/InstantPreviewSurface.h",
-            "src/ui/InstantPreviewSurface.cpp",
             "src/ui/WebEngineBackend.h",
-            "src/ui/WebEngineBackend.cpp"
+            "src/ui/WebEngineBackend.cpp",
+            "web/src",
+            "web/scripts/build_runtime.js"
           ];
           for (const target of strictTargets) {
             runAudit(target, { strict: true, minScore: 100 });
@@ -89,17 +114,23 @@ tasks:
             process.exit(1);
           }
           const web = runAudit("web/src");
-          if (web.totalElse > 6 || web.totalDeepNesting > 179 || web.totalLargeFiles > 1) {
-            console.error("Web Calisthenics ratchet regression:", web);
+          if (web.totalElse > 0 || web.totalDeepNesting > 0 || web.totalLargeFiles > 0) {
+            console.error("Web Calisthenics strict 100/100 regression:", web);
             process.exit(1);
           }
         '
 
   benchmark:
-    desc: Verify p95 startup latency budgets (--version <25ms, IPC <60ms, instant paint <120ms, prose hydration <450ms)
+    desc: Verify startup budgets (CLI, IPC, window frame, content reveal, warm open, mode switch) plus per-phase limits and drift against scripts/startup_baseline.json
     deps: [build]
     cmds:
       - bash scripts/benchmark_startup.sh
+
+  benchmark-baseline:
+    desc: Re-record scripts/startup_baseline.json from a fresh 20-iteration run (commit it deliberately)
+    deps: [build]
+    cmds:
+      - bash scripts/benchmark_startup.sh --record-baseline
 
   gate:
     desc: Run full 4-tier quality gate (tests + coverage + strict Object Calisthenics + startup latency budgets)
@@ -110,10 +141,21 @@ tasks:
       - task: benchmark
 
   test:
-    desc: Run both decoupled test suites (C++ and Web)
+    desc: Run the C++, Web and git-hook test suites
     cmds:
       - task: test-cpp
       - task: test-web
+      - task: test-hooks
+
+  test-hooks:
+    desc: Check the pre-push startup hook against a stub benchmark
+    cmds:
+      - bash scripts/test_git_hooks.sh
+
+  install-hooks:
+    desc: Point this repo's core.hooksPath at scripts/git-hooks (runs task benchmark before every push)
+    cmds:
+      - bash scripts/install-git-hooks.sh .
 
   test-all:
     desc: Alias for test
@@ -126,6 +168,28 @@ tasks:
     deps: [build]
     cmds:
       - bash scripts/package_macos.sh
+
+  package-linux:
+    desc: Build the arm64 .deb in Docker and test installing it with apt (see packaging/linux/README.md)
+    deps: [build-web]
+    cmds:
+      - bash scripts/package_linux.sh
+
+  package-linux-amd64:
+    desc: Build the amd64 .deb in Docker (emulated on Apple Silicon) and test installing it with apt
+    deps: [build-web]
+    cmds:
+      - PLATFORM=linux/amd64 bash scripts/package_linux.sh
+
+  publish-apt:
+    desc: Upload the .deb files to the GitHub release and write the signed APT index into the website (key from 1Password)
+    cmds:
+      - bash scripts/publish_apt_repo.sh
+
+  test-published-apt:
+    desc: apt-get install markd from markd.aramudan.dev/apt in clean arm64 and amd64 Ubuntu containers
+    cmds:
+      - bash scripts/test_published_apt.sh
 
   homebrew-formula:
     desc: Generate Homebrew formula (markd.rb) from packaged macOS archive
@@ -161,7 +225,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf {{.BUILD_DIR}}
+      - rm -rf {{.BUILD_DIR}} web/dist/render.js web/dist/render.js.map web/dist/chunks
 
   install-app:
     desc: Package and install Markd.app to /Applications and register with macOS LaunchServices

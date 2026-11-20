@@ -376,6 +376,7 @@ inline void testDomainSemanticActionProtocol(MarkdApplication& app) {
 
             assert(navSpy.count() >= 1);
             assert(navSpy.last().at(0).toString() == "section-two");
+            assert(navSpy.last().at(1).toString() == "instant");
 
             // Case B: Switch back to edit mode with active heading from preview
             emit win.previewView()->activeHeadingChanged("section-two");

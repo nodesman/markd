@@ -2,10 +2,12 @@
   "name": "markd-web",
   "version": "1.0.0",
   "description": "Markd web runtime and markdown renderer",
-  "main": "src/render.js",
+  "main": "dist/render.js",
   "scripts": {
-    "test": "node --test tests/render.test.js",
-    "test:coverage": "c8 --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test tests/render.test.js"
+    "build": "node scripts/build_runtime.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/render.test.js tests/build_runtime.test.js",
+    "test:coverage": "npm run build && c8 --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test tests/render.test.js"
   },
   "keywords": [
     "markdown",
@@ -16,6 +18,7 @@
   "license": "ISC",
   "devDependencies": {
     "c8": "^12.0.0",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2"
   }
 }

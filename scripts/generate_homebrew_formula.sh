@@ -62,17 +62,26 @@ FORMULA_CONTENT="$(cat <<EOF
 class Markd < Formula
   desc "Native C++20 / Qt 6 Markdown instrument for the command line"
   homepage "https://markd.aramudan.dev"
-  url "${URL}"
+  url "${URL}", using: :nounzip
   version "${VERSION}"
   sha256 "${SHA256}"
   license "GPL-3.0-only"
 
   def install
-    libexec.install "Markd.app"
+    # Keep the signed, self-contained Markd.app out of Homebrew Mach-O relocation, which
+    # rewrites the bundled Qt linkage and breaks the app. Store the archive as a plain file
+    # and unpack it in post_install, which runs after relocation.
+    libexec.install Dir["*.tar.gz"].first => "Markd.tar.gz"
     bin.write_exec_script libexec/"Markd.app/Contents/MacOS/markd"
   end
 
   def post_install
+    rm_r libexec/"Markd.app" if (libexec/"Markd.app").exist?
+    system "tar", "-xzf", libexec/"Markd.tar.gz", "-C", libexec
+    register_with_launch_services
+  end
+
+  def register_with_launch_services
     lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
     system lsregister, "-f", "#{opt_libexec}/Markd.app" if File.executable?(lsregister)
     system "#{bin}/markd", "--register-default"

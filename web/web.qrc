@@ -2,7 +2,7 @@
     <qresource prefix="/web">
         <!-- Canonical Web Engine Shell & Assets -->
         <file>template.html</file>
-        <file>src/render.js</file>
+        <file>dist/render.js</file>
         <file>styles/obsidian.css</file>
 
         <!-- Package-by-Library Vendor Assets -->

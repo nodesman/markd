@@ -12,6 +12,13 @@
 #include "ui/MainWindow.h"
 #include "ui/ModeSwitcher.h"
 #include "ui/PreviewView.h"
+#include "core/DocumentSession.h"
+#include "FakeWebEngineBackend.h"
+#include <QFile>
+#include <QSignalSpy>
+#include <QTemporaryFile>
+#include <QTest>
+#include <QDir>
 
 inline void testDualViewports(QApplication& app) {
     using Zinsser::describe;
@@ -96,6 +103,64 @@ inline void testDualViewports(QApplication& app) {
             assert(stack->currentIndex() == 0);
             assert(win.documentBuffer() == testPayload);
             assert(win.editor()->hasFocus() || win.focusWidget() == win.editor());
+        });
+    });
+
+    describe("Edit-mode typing with a booted preview", [&]() {
+        it("sends no render to the web engine while typing in edit mode", [&]() {
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow editWin;
+            editWin.show();
+            app.processEvents();
+            PreviewView* preview = editWin.previewView();
+            emit preview->bridge()->bridgeInitialized();
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            for (int i = 0; i < 20; ++i) {
+                editWin.editor()->insertPlainText(QStringLiteral("x"));
+            }
+            assert(editWin.session()->markdown().size() == 20);
+            assert(renderSpy.count() == 0);
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("renders the latest buffer once on the first mode switch", [&]() {
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow editWin;
+            editWin.show();
+            app.processEvents();
+            PreviewView* preview = editWin.previewView();
+            emit preview->bridge()->bridgeInitialized();
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+            editWin.editor()->insertPlainText(QStringLiteral("# Typed Title\n\nTyped body."));
+            editWin.setMode(MainWindow::Mode::Preview);
+            assert(renderSpy.count() == 1);
+            assert(renderSpy.at(0).at(0).toString() == editWin.editor()->toPlainText());
+            PreviewView::clearBackendFactoryOverride();
+        });
+
+        it("forwards disk reloads to the preview in preview mode", [&]() {
+            QTemporaryFile tempFile(QDir::tempPath() + "/markd_disk_reload_XXXXXX.md");
+            assert(tempFile.open());
+            tempFile.write("# Before Reload\n");
+            tempFile.close();
+
+            PreviewView::overrideBackendFactory(&createFakeWebEngineBackend);
+            MainWindow previewWin(tempFile.fileName(), MainWindow::Mode::Preview, true);
+            PreviewView* preview = previewWin.previewView();
+            emit preview->bridge()->bridgeInitialized();
+            QSignalSpy renderSpy(preview->bridge(), &WebBridge::renderDocument);
+
+            QFile file(tempFile.fileName());
+            assert(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            file.write("# After Reload\n");
+            file.close();
+            QMetaObject::invokeMethod(previewWin.session(), "onWatcherTimeout");
+            assert(renderSpy.count() >= 1);
+            assert(renderSpy.last().at(0).toString().contains("After Reload"));
+
+            previewWin.session()->setMarkdown(QStringLiteral("# Dropped In\n"));
+            assert(renderSpy.last().at(0).toString().contains("Dropped In"));
+            PreviewView::clearBackendFactoryOverride();
         });
     });
 }

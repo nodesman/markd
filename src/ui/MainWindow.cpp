@@ -1,4 +1,5 @@
 #include "ui/MainWindow.h"
+#include "core/StartupPhaseTrace.h"
 #include "ui/AboutDialog.h"
 #include "ui/UpdateDialog.h"
 #include "core/Converter.h"
@@ -233,7 +234,8 @@ void MainWindow::setupUI()
             m_editor->setPlainText(md);
             ++m_editorPlainTextSyncCount;
         }
-        if (m_previewView && m_previewView->currentMarkdown() != md) {
+        // Edit mode keeps the hidden preview idle while typing; syncEditorToPreview renders on the switch.
+        if (m_currentMode == ModeSwitcher::DocumentMode::Preview && m_previewView && m_previewView->currentMarkdown() != md) {
             m_previewView->setMarkdown(md);
         }
     });
@@ -993,7 +995,7 @@ void MainWindow::syncEditorToPreview()
         return;
     }
     if (!targetHeadingId.isEmpty()) {
-        m_previewView->scrollToHeading(targetHeadingId);
+        m_previewView->scrollToHeading(targetHeadingId, /*instant=*/true);
         return;
     }
     if (scrollRatio > 0.0) {
@@ -1025,6 +1027,7 @@ qreal MainWindow::determineScrollRatio(const QString& targetHeadingId) const
 void MainWindow::showEvent(QShowEvent* event)
 {
     QMainWindow::showEvent(event);
+    StartupPhaseTrace::mark("window_shown");
     if (m_previewView) {
         m_previewView->schedulePostShowHydration();
     }

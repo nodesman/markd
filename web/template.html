@@ -18,6 +18,11 @@
             margin: 0;
             padding: 0;
         }
+        /* Live page only: content stays hidden until the first render resolves its scroll position.
+           Exports never load this template, so they stay visible by default. */
+        body.is-hydrating #content {
+            opacity: 0;
+        }
     </style>
     <link rel="stylesheet" href="vendor/katex/katex.min.css">
     <link rel="stylesheet" href="styles/obsidian.css">
@@ -30,9 +35,9 @@
     <script src="vendor/katex/katex.min.js"></script>
     <script src="vendor/markdown-it/texmath.min.js"></script>
     <script src="vendor/purify/purify.min.js"></script>
-    <script src="src/render.js"></script>
+    <script src="dist/render.js"></script>
 </head>
-<body>
+<body class="is-hydrating">
     <article id="content" class="markdown-rendered"></article>
 </body>
 </html>

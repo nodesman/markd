@@ -2,9 +2,11 @@
 #include "app/CommandLineOptions.h"
 #include "app/SingleInstanceCoordinator.h"
 #include "core/FileAssociationManager.h"
+#include "ui/EditorView.h"
 #include "ui/MainWindow.h"
 #include "ui/PreviewView.h"
 #include "ui/Theme.h"
+#include "core/StartupPhaseTrace.h"
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -63,6 +65,28 @@ bool shouldCoalesceMacosFileOpen(const CommandLineOptions& options)
 #endif
 }
 
+void editThenSwitchToPreview(MainWindow* win, QElapsedTimer* switchTimer)
+{
+    win->editor()->appendPlainText(QStringLiteral("\nBenchmark edit before the mode switch."));
+    switchTimer->start();
+    win->setMode(MainWindow::Mode::Preview);
+}
+
+// Mode 3 (gate 6): boot an Edit window, let the hidden first render finish, edit the buffer,
+// then time the switch to Preview until the re-rendered content is revealed.
+void benchmarkFirstModeSwitch(MarkdApplication& app, MainWindow* win)
+{
+    win->setMode(MainWindow::Mode::Edit);
+    PreviewView* preview = win->previewView();
+    auto* switchTimer = new QElapsedTimer();
+    auto* renders = new int(0);
+    QObject::connect(preview, &PreviewView::documentRendered, &app, [&app, win, switchTimer, renders]() {
+        if (++*renders == 1) return editThenSwitchToPreview(win, switchTimer);
+        std::cout << "MARKD_BENCH_MODE_SWITCH_MS=" << switchTimer->elapsed() << "\n" << std::flush;
+        QTimer::singleShot(0, &app, &QCoreApplication::quit);
+    });
+}
+
 void attachStartupBenchmarkProbe(MarkdApplication& app, const QElapsedTimer& timer)
 {
     const int benchMode = qEnvironmentVariableIntValue("MARKD_STARTUP_BENCHMARK");
@@ -72,12 +96,13 @@ void attachStartupBenchmarkProbe(MarkdApplication& app, const QElapsedTimer& tim
         if (!win || !win->previewView()) return;
         PreviewView* preview = win->previewView();
         const int webInit = preview->isWebEngineInitialized() ? 1 : 0;
-        std::cout << "MARKD_BENCH_INSTANT_PAINT_MS=" << timer.elapsed()
+        std::cout << "MARKD_BENCH_WINDOW_FRAME_MS=" << timer.elapsed()
                   << " WEBENGINE_INIT=" << webInit << "\n" << std::flush;
         if (benchMode == 1) {
             QTimer::singleShot(0, &app, &QCoreApplication::quit);
             return;
         }
+        if (benchMode == 3) return benchmarkFirstModeSwitch(app, win);
         QObject::connect(preview, &PreviewView::documentRendered, &app, [&app, &timer]() {
             std::cout << "MARKD_BENCH_HYDRATED_MS=" << timer.elapsed() << "\n" << std::flush;
             QTimer::singleShot(0, &app, &QCoreApplication::quit);
@@ -95,6 +120,7 @@ void attachStartupBenchmarkProbe(MarkdApplication& app, const QElapsedTimer& tim
 
 int main(int argc, char* argv[])
 {
+    StartupPhaseTrace::mark("main_entry");
     QElapsedTimer startupTimer;
     startupTimer.start();
 
@@ -151,7 +177,7 @@ int main(int argc, char* argv[])
         app.processEvents();
         MainWindow* win = app.windows().isEmpty() ? nullptr : app.windows().first();
         const int webInit = (win && win->previewView() && win->previewView()->isWebEngineInitialized()) ? 1 : 0;
-        std::cout << "MARKD_BENCH_INSTANT_PAINT_MS=" << startupTimer.elapsed()
+        std::cout << "MARKD_BENCH_WINDOW_FRAME_MS=" << startupTimer.elapsed()
                   << " WEBENGINE_INIT=" << webInit << "\n" << std::flush;
         return 0;
     }
