@@ -26,7 +26,7 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
     cssFile.close();
     assert(!css.isEmpty());
 
-    QFile jsFile(":/web/src/render.js");
+    QFile jsFile(":/web/dist/render.js");
     assert(jsFile.open(QIODevice::ReadOnly | QIODevice::Text));
     QString js = QString::fromUtf8(jsFile.readAll());
     jsFile.close();

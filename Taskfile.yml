@@ -14,9 +14,33 @@ tasks:
     cmds:
       - bash scripts/generate_icons.sh
 
+  web-deps:
+    desc: Ensure web TypeScript and test devDependencies are installed
+    internal: true
+    run: once
+    dir: web
+    cmds:
+      - "[ -x node_modules/.bin/tsc ] && [ -x node_modules/.bin/c8 ] && [ -d node_modules/jsdom ] || npm install --prefer-offline --no-audit --no-fund"
+
+  build-web:
+    desc: Compile TypeScript web runtime (web/src -> web/dist)
+    run: once
+    deps: [web-deps]
+    dir: web
+    cmds:
+      - npm run build
+
+  typecheck-web:
+    desc: Type-check TypeScript web runtime without emitting files
+    deps: [web-deps]
+    dir: web
+    cmds:
+      - npm run typecheck
+
   configure:
     desc: Configure Release CMake build for Markd with Qt 6.5.3
     run: once
+    deps: [build-web]
     cmds:
       - cmake -B {{.BUILD_DIR}} -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DCMAKE_BUILD_TYPE=Release
 
@@ -34,21 +58,22 @@ tasks:
       - ctest --test-dir {{.BUILD_DIR}} --output-on-failure
 
   test-web:
-    desc: Run JavaScript test suite with Node.js
+    desc: Compile TypeScript web runtime and run web test suite with Node.js
+    deps: [web-deps]
     dir: web
     cmds:
-      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm test
 
   coverage-web:
-    desc: Run JavaScript test suite with c8 and verify 100% branch and line coverage
+    desc: Compile TypeScript web runtime and verify 100% branch and line coverage with c8
+    deps: [web-deps]
     dir: web
     cmds:
-      - "[ -d node_modules ] || npm ci --prefer-offline --no-audit --no-fund"
       - npm run test:coverage
 
   coverage-cpp:
     desc: Run C++ test suite and enforce >= 95% line coverage via LLVM source instrumentation
+    deps: [build-web]
     cmds:
       - cmake -B build_cov -S . -DCMAKE_PREFIX_PATH={{.QT_DIR}}/lib/cmake -DENABLE_COVERAGE=ON
       - cmake --build build_cov -j8
@@ -76,7 +101,8 @@ tasks:
             "src/app/MarkdApplication.h",
             "src/app/MarkdApplication.cpp",
             "src/ui/WebEngineBackend.h",
-            "src/ui/WebEngineBackend.cpp"
+            "src/ui/WebEngineBackend.cpp",
+            "web/src/globals.d.ts"
           ];
           for (const target of strictTargets) {
             runAudit(target, { strict: true, minScore: 100 });
@@ -144,11 +170,13 @@ tasks:
 
   package-linux:
     desc: Build the arm64 .deb in Docker and test installing it with apt (see packaging/linux/README.md)
+    deps: [build-web]
     cmds:
       - bash scripts/package_linux.sh
 
   package-linux-amd64:
     desc: Build the amd64 .deb in Docker (emulated on Apple Silicon) and test installing it with apt
+    deps: [build-web]
     cmds:
       - PLATFORM=linux/amd64 bash scripts/package_linux.sh
 
@@ -196,7 +224,7 @@ tasks:
   clean:
     desc: Clean build artifacts
     cmds:
-      - rm -rf {{.BUILD_DIR}}
+      - rm -rf {{.BUILD_DIR}} web/dist/render.js web/dist/render.js.map
 
   install-app:
     desc: Package and install Markd.app to /Applications and register with macOS LaunchServices

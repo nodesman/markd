@@ -32,6 +32,41 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets WebEngineWidgets WebChannel Test Network)
 
+set(WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/web")
+set(WEB_RENDER_JS "${WEB_DIR}/dist/render.js")
+set(WEB_TS_SOURCES
+    "${WEB_DIR}/src/render.ts"
+    "${WEB_DIR}/src/globals.d.ts"
+    "${WEB_DIR}/tsconfig.json"
+)
+
+set(WEB_TSC_EXECUTABLE "")
+if(EXISTS "${WEB_DIR}/node_modules/.bin/tsc")
+    set(WEB_TSC_EXECUTABLE "${WEB_DIR}/node_modules/.bin/tsc")
+else()
+    find_program(WEB_GLOBAL_TSC tsc)
+    if(WEB_GLOBAL_TSC)
+        set(WEB_TSC_EXECUTABLE "${WEB_GLOBAL_TSC}")
+    endif()
+endif()
+
+if(WEB_TSC_EXECUTABLE)
+    add_custom_command(
+        OUTPUT "${WEB_RENDER_JS}"
+        COMMAND "${WEB_TSC_EXECUTABLE}" -p "${WEB_DIR}/tsconfig.json"
+        WORKING_DIRECTORY "${WEB_DIR}"
+        DEPENDS ${WEB_TS_SOURCES}
+        COMMENT "Compiling TypeScript web runtime (web/src -> web/dist/render.js)"
+        VERBATIM
+    )
+    add_custom_target(markd_web_runtime DEPENDS "${WEB_RENDER_JS}")
+elseif(NOT EXISTS "${WEB_RENDER_JS}")
+    message(FATAL_ERROR
+        "Compiled web runtime missing: ${WEB_RENDER_JS}\n"
+        "Run 'task build-web' (or 'cd web && npm install && npm run build') before configuring CMake."
+    )
+endif()
+
 include_directories(src)
 
 set(COMMON_SOURCES
@@ -139,6 +174,9 @@ target_link_libraries(markd_webengine PRIVATE
 
 add_executable(markd ${SOURCES})
 add_dependencies(markd markd_webengine)
+if(TARGET markd_web_runtime)
+    add_dependencies(markd markd_web_runtime)
+endif()
 
 target_link_libraries(markd PRIVATE
     Qt6::Core
@@ -178,6 +216,9 @@ add_executable(test_cli
     src/ui/WebEngineBackend.cpp
     ${COMMON_SOURCES}
 )
+if(TARGET markd_web_runtime)
+    add_dependencies(test_cli markd_web_runtime)
+endif()
 
 target_compile_definitions(test_cli PRIVATE MARKD_STATIC_WEBENGINE_BACKEND)
 

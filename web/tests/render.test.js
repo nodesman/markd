@@ -98,7 +98,7 @@ ${templateBody}
 
     win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
 
-    const renderPath = path.join(webDir, 'src/render.js');
+    const renderPath = path.join(webDir, 'dist/render.js');
     const renderSrc = fs.readFileSync(renderPath, 'utf8');
     const renderScript = new vm.Script(renderSrc, { filename: renderPath });
     renderScript.runInContext(dom.getInternalVMContext());
@@ -835,7 +835,7 @@ describe('render.js Native Node.js Test Suite', () => {
             win.eval('(function() { ' + fs.readFileSync(path.join(webDir, 'vendor/markdown-it/texmath.min.js'), 'utf8') + '\nwindow.texmath = texmath; })();');
             win.eval(fs.readFileSync(path.join(webDir, 'vendor/purify/purify.min.js'), 'utf8'));
 
-            const renderPath = path.join(webDir, 'src/render.js');
+            const renderPath = path.join(webDir, 'dist/render.js');
             const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
             renderScript.runInContext(dom.getInternalVMContext());
 
@@ -873,7 +873,7 @@ describe('render.js Native Node.js Test Suite', () => {
 
             Object.defineProperty(win.document, 'readyState', { value: 'complete', configurable: true });
 
-            const renderPath = path.join(webDir, 'src/render.js');
+            const renderPath = path.join(webDir, 'dist/render.js');
             const renderScript = new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath });
             renderScript.runInContext(dom.getInternalVMContext());
 

@@ -20,7 +20,7 @@ inline void testOfflineAssetSelfContainment() {
             assert(QFile::exists(":/web/vendor/katex/katex.min.js"));
             assert(QFile::exists(":/web/vendor/highlight/highlight.min.js"));
             assert(QFile::exists(":/web/vendor/markdown-it/markdown-it.min.js"));
-            assert(QFile::exists(":/web/src/render.js"));
+            assert(QFile::exists(":/web/dist/render.js"));
         });
     });
 }
