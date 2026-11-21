@@ -1,131 +1,139 @@
-// Async render downlink mutex, document pipeline orchestration, and public window.Markd API
+// MarkdRuntime composition root: instantiates the entity graph once and publishes window.Markd + thin delegators
 
-let renderDownlinkMutex: Promise<void> | null = null;
-let currentRenderedMarkdown: string | null = null;
-
-function releaseRenderDownlinkMutex(completedRun: Promise<void>): void {
-    if (renderDownlinkMutex === completedRun) {
-        renderDownlinkMutex = null;
-    }
+interface RuntimeServices {
+  pipeline: RenderPipeline;
+  navigator: ScrollNavigator;
+  modal: FullViewModal;
+  mermaid: MermaidEnhancer;
+  tables: TableEnhancer;
+  codeBlocks: CodeBlockEnhancer;
 }
 
-function renderMarkdown(markdownText: unknown, options?: RenderOptions): Promise<void> {
-    const scheduledTask = function (): Promise<void> {
-        return executeRenderMarkdown(markdownText, options);
+class MarkdRuntime {
+  private readonly bridge: BridgeChannel;
+  private readonly services: RuntimeServices;
+
+  constructor() {
+    const sanitizer = new DomSanitizer();
+    const compiler = new DocumentCompiler(sanitizer);
+    const sizeMemory = new BlockSizeMemory();
+    const resizer = new BlockResizer(sizeMemory);
+    const modal = new FullViewModal();
+    const mermaidLoader = new MermaidLoader();
+    const mermaid = new MermaidEnhancer({ loader: mermaidLoader, sanitizer: sanitizer, resizer: resizer, modal: modal });
+    const tables = new TableEnhancer(modal, resizer);
+    const codeBlocks = new CodeBlockEnhancer(resizer);
+
+    this.bridge = new BridgeChannel();
+    const navigator = new ScrollNavigator(this.bridge);
+    const pipeline = new RenderPipeline({
+      compiler: compiler,
+      enhancers: [mermaid, tables, codeBlocks],
+      navigator: navigator,
+      bridge: this.bridge,
+      modal: modal
+    });
+    this.bridge.bindTargets(pipeline, navigator);
+    new DomInteractionRouter(this.bridge, navigator);
+
+    pipeline.render = pipeline.render.bind(pipeline);
+    navigator.scrollToHeading = navigator.scrollToHeading.bind(navigator);
+    navigator.scrollToRatio = navigator.scrollToRatio.bind(navigator);
+
+    this.services = {
+      pipeline: pipeline,
+      navigator: navigator,
+      modal: modal,
+      mermaid: mermaid,
+      tables: tables,
+      codeBlocks: codeBlocks
     };
-    const nextRun = renderDownlinkMutex
-        ? renderDownlinkMutex.then(scheduledTask, scheduledTask)
-        : scheduledTask();
-    const trackedRun = nextRun.finally(function (): void {
-        releaseRenderDownlinkMutex(trackedRun);
-    });
-    renderDownlinkMutex = trackedRun;
-    return trackedRun;
-}
 
-function sanitizeDocumentHtml(html: string): string {
-    return DOMPurify!.sanitize(html, {
-        ADD_TAGS: ['semantics', 'annotation'],
-        ADD_ATTR: ['target', 'encoding', 'rel', 'role', 'aria-label', 'data-lang', 'type'],
-        FORBID_TAGS: ['style'],
-        ALLOW_DATA_ATTR: true,
-        SANITIZE_NAMED_PROPS: false,
-        RETURN_TRUSTED_TYPE: false
-    });
-}
+    this.publishWindowApi();
+    this.subscribeColorScheme();
+    this.bridge.bootstrap();
+    this.bootstrapReady();
+  }
 
-function notifyBridgeDocumentRendered(contentEl: HTMLElement): void {
-    const headings = contentEl.querySelectorAll('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]');
-    if (window.markdBridge && typeof window.markdBridge.onDocumentRendered === 'function') {
-        window.markdBridge.onDocumentRendered(headings.length);
-    }
-}
+  private publishWindowApi(): void {
+    const openModal = (contentNode: HTMLElement, isDiagram: boolean): void => {
+      this.services.modal.open(contentNode, isDiagram);
+    };
+    const closeModal = (immediate?: boolean): void => {
+      this.services.modal.close(immediate);
+    };
 
-async function executeRenderMarkdown(markdownText: unknown, options?: RenderOptions): Promise<void> {
-    if (typeof markdownText !== 'string') {
-        return;
-    }
-    if (markdownText === currentRenderedMarkdown && (!options || !options.force)) {
-        return;
-    }
-    currentRenderedMarkdown = markdownText;
-
-    closeFullView(true);
-    cleanupDiagramListeners();
-
-    const preserveBlockSizes = !!(options && (options.preserveScroll === true || options.force === true));
-    if (!preserveBlockSizes) {
-        blockSizeMemory = Object.create(null);
-    }
-
-    const contentEl = document.getElementById('content')!;
-    const prevScrollY = window.scrollY || 0;
-    const existingFrontmatter = contentEl.querySelector<HTMLDetailsElement>('.markd-frontmatter');
-    const preserveFrontmatterOpen = !!(existingFrontmatter && existingFrontmatter.open);
-
-    const fm = extractFrontmatter(markdownText);
-    const frontmatterHtml = fm.found ? renderFrontmatterHtml(fm, preserveFrontmatterOpen) : '';
-    const html = frontmatterHtml + md.render(fm.body);
-
-    contentEl.innerHTML = sanitizeDocumentHtml(html);
-
-    transformMermaidCodeBlocks(contentEl);
-
-    const mermaidDivs = contentEl.querySelectorAll<HTMLElement>('.mermaid');
-    if (mermaidDivs.length > 0) {
-        await renderMermaidNodes(mermaidDivs);
-    }
-
-    wrapMermaidDiagrams();
-    wrapTables();
-    attachCodeBlockResizeHandles();
-    setupScrollSpy();
-    resolvePostRenderScroll(options, prevScrollY);
-
-    document.body.classList.remove('is-hydrating');
-    notifyBridgeDocumentRendered(contentEl);
-}
-
-window.Markd = {
-    version: '1.0.0',
-    isReady: false,
-    render: renderMarkdown,
-    scrollToHeading: scrollToHeading,
-    scrollToRatio: scrollToRatio,
-    modal: {
-        open: openFullView,
-        close: closeFullView
-    },
-    get bridge(): MarkdBridge | null {
+    window.Markd = {
+      version: '1.0.0',
+      isReady: false,
+      render: this.services.pipeline.render,
+      scrollToHeading: this.services.navigator.scrollToHeading,
+      scrollToRatio: this.services.navigator.scrollToRatio,
+      modal: {
+        open: openModal,
+        close: closeModal
+      },
+      get bridge(): MarkdBridge | null {
         return window.markdBridge;
-    },
-    get session(): MarkdSession | null {
+      },
+      get session(): MarkdSession | null {
         return window.session;
-    }
-};
+      }
+    };
 
-window.renderMarkdown = renderMarkdown;
-window.scrollToHeading = scrollToHeading;
-window.scrollToRatio = scrollToRatio;
-window.openFullView = openFullView;
-window.closeFullView = closeFullView;
-window.setupScrollSpy = setupScrollSpy;
-window.wrapMermaidDiagrams = wrapMermaidDiagrams;
-window.wrapTables = wrapTables;
-window.attachCodeBlockResizeHandles = attachCodeBlockResizeHandles;
-window.handleSessionMarkdownChanged = handleSessionMarkdownChanged;
+    this.defineDelegatedWindowMethod(
+      'renderMarkdown',
+      (): ((markdownText: unknown, options?: RenderOptions) => Promise<void>) => this.services.pipeline.render,
+      (fn: (markdownText: unknown, options?: RenderOptions) => Promise<void>): void => { this.services.pipeline.render = fn; }
+    );
+    this.defineDelegatedWindowMethod(
+      'scrollToHeading',
+      (): ((id: string, behavior?: ScrollBehavior) => void) => this.services.navigator.scrollToHeading,
+      (fn: (id: string, behavior?: ScrollBehavior) => void): void => { this.services.navigator.scrollToHeading = fn; }
+    );
+    this.defineDelegatedWindowMethod(
+      'scrollToRatio',
+      (): ((ratio: unknown) => void) => this.services.navigator.scrollToRatio,
+      (fn: (ratio: unknown) => void): void => { this.services.navigator.scrollToRatio = fn; }
+    );
 
-function markEngineReady(): void {
-    window.Markd.isReady = true;
-}
+    window.renderDocument = (markdown: unknown, options?: RenderOptions): void => {
+      this.bridge.queueOrRender(markdown, options);
+    };
+    window.openFullView = openModal;
+    window.closeFullView = closeModal;
+    window.setupScrollSpy = (): void => { this.services.navigator.setupScrollSpy(); };
+    window.wrapMermaidDiagrams = (): void => { this.services.mermaid.wrapDiagrams(document.getElementById('content')!); };
+    window.wrapTables = (): void => { this.services.tables.enhance(document.getElementById('content')!); };
+    window.attachCodeBlockResizeHandles = (): void => { this.services.codeBlocks.enhance(document.getElementById('content')!); };
+    window.handleSessionMarkdownChanged = (newMarkdown: string): void => { this.bridge.handleSessionMarkdownChanged(newMarkdown); };
+    window.ensureMermaidLoaded = (): Promise<MermaidApi> => this.services.mermaid.ensureLoaded();
+    window.setTheme = (themeName?: string): void => { this.services.pipeline.setTheme(themeName); };
+    window.cleanupDiagramListeners = (): void => { this.services.mermaid.teardown(true); };
+    window.initQWebChannel = (): void => { this.bridge.connect(); };
+  }
 
-function bootstrapMarkdReady(): void {
+  private defineDelegatedWindowMethod<T>(key: string, read: () => T, write: (fn: T) => void): void {
+    Object.defineProperty(window, key, {
+      configurable: true,
+      get: read,
+      set: write
+    });
+  }
+
+  private subscribeColorScheme(): void {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e: MediaQueryListEvent): void => {
+      this.services.pipeline.setTheme(e.matches ? 'dark' : 'default');
+    });
+  }
+
+  private bootstrapReady(): void {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', markEngineReady);
-        return;
+      document.addEventListener('DOMContentLoaded', (): void => { window.Markd.isReady = true; });
+      return;
     }
-    markEngineReady();
+    window.Markd.isReady = true;
+  }
 }
 
-bootstrapQWebChannel();
-bootstrapMarkdReady();
+void new MarkdRuntime();

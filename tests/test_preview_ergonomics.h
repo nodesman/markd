@@ -121,20 +121,20 @@ inline void testPreviewEditorialErgonomics(QApplication& app) {
 
     describe("Render script transforms and preview document lifecycle", [&]() {
         it("provides diagram zoom-pan transform math and cleans up modal event listeners", [&]() {
-            assert(js.contains("setupDiagramZoomPan"));
+            assert(js.contains("class ZoomPanViewport"));
             assert(js.contains("openFullView"));
             assert(js.contains("applyTransform"));
-            assert(js.contains("fvApply"));
+            assert(js.contains("this.applyTransform(false);"));
             assert(!js.contains("style.transformOrigin"));
             assert(js.contains("contentNode.style.transform = '';"));
-            assert(js.contains("document.removeEventListener('mousemove', fvMouseMoveHandler);"));
-            assert(js.contains("document.removeEventListener('mouseup', fvMouseUpHandler);"));
-            assert(js.contains("fvApply(false);"));
+            assert(js.contains("document.removeEventListener('mousemove', this.state.onMouseMove);"));
+            assert(js.contains("document.removeEventListener('mouseup', this.state.onMouseUp);"));
+            assert(js.contains("zoomViewport.dispose()"));
         });
 
         it("publishes window Markd engine API and purges legacy DOM search bar", [&]() {
             assert(js.contains("window.Markd ="));
-            assert(js.contains("activeFullViewClose"));
+            assert(js.contains("this.activeClose"));
             assert(js.contains("closeFullView"));
             assert(!js.contains("markd-find-bar"));
             assert(!js.contains("extractAndSendTOC"));

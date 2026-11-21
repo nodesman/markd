@@ -1,121 +1,175 @@
-// QWebChannel Bridge setup and Qt C++ IPC downlink/uplink lifecycle
+// QWebChannel Bridge host: sole entity talking to C++ WebBridge and session over QWebChannel
 
-window.markdBridge = null;
-window.session = null;
-
-let isBridgeConnected = false;
-const pendingRenderSignals: PendingRenderSignal[] = [];
-
-function queueOrRenderDocument(markdown: unknown, options?: RenderOptions): void {
-    if (!isBridgeConnected && !window.markdBridge) {
-        pendingRenderSignals.push({ markdown: markdown, options: options });
-        return;
-    }
-    renderMarkdown(markdown, options);
+interface BridgeState {
+  connected: boolean;
+  pendingQueue: PendingRenderSignal[];
 }
-window.renderDocument = queueOrRenderDocument;
 
-function handleSessionMarkdownChanged(newMarkdown: string): void {
+interface BridgeTargets {
+  renderer: IDocumentRenderer;
+  navigator: ScrollNavigator;
+}
+
+class BridgeChannel implements IBridgeHost {
+  private readonly state: BridgeState;
+  private targets!: BridgeTargets;
+
+  constructor() {
+    window.markdBridge = null;
+    window.session = null;
+    this.state = {
+      connected: false,
+      pendingQueue: []
+    };
+  }
+
+  bindTargets(renderer: IDocumentRenderer, navigator: ScrollNavigator): void {
+    this.targets = { renderer: renderer, navigator: navigator };
+  }
+
+  queueOrRender(markdown: unknown, options?: RenderOptions): void {
+    if (!this.state.connected && !window.markdBridge) {
+      this.state.pendingQueue.push({ markdown: markdown, options: options });
+      return;
+    }
+    this.targets.renderer.render(markdown, options);
+  }
+
+  handleSessionMarkdownChanged(newMarkdown: string): void {
     if (window.markdBridge && window.markdBridge.renderDocument) {
-        return;
+      return;
     }
-    if (newMarkdown === currentRenderedMarkdown) {
-        return;
+    if (newMarkdown === this.targets.renderer.currentMarkdown()) {
+      return;
     }
-    renderMarkdown(newMarkdown);
-}
+    this.targets.renderer.render(newMarkdown);
+  }
 
-function onBridgeRenderDocument(markdown: unknown, options?: RenderOptions): void {
-    if (typeof renderMarkdown === 'function') {
-        renderMarkdown(markdown, options);
+  notifyDocumentRendered(headingCount: number): void {
+    if (window.markdBridge && typeof window.markdBridge.onDocumentRendered === 'function') {
+      window.markdBridge.onDocumentRendered(headingCount);
     }
-}
+  }
 
-function onBridgeNavigateHeading(headingId: string, behavior?: ScrollBehavior): void {
-    if (typeof scrollToHeading === 'function') {
-        scrollToHeading(headingId, behavior);
+  private reportBridgeActiveHeading(headingId: string): void {
+    if (window.markdBridge && typeof window.markdBridge.onActiveHeadingChanged === 'function') {
+      window.markdBridge.onActiveHeadingChanged(headingId);
+      return;
     }
-}
-
-function onBridgeScrollRatio(ratio: unknown): void {
-    if (typeof scrollToRatio === 'function') {
-        scrollToRatio(ratio);
+    if (window.markdBridge && typeof window.markdBridge.setActiveHeading === 'function') {
+      window.markdBridge.setActiveHeading(headingId);
     }
-}
+  }
 
-function onSessionHeadingSelected(headingId: string): void {
-    if (typeof scrollToHeading === 'function') {
-        scrollToHeading(headingId);
+  notifyActiveHeading(headingId: string): void {
+    if (window.session && typeof window.session.reportActiveHeading === 'function') {
+      window.session.reportActiveHeading(headingId);
     }
-}
+    this.reportBridgeActiveHeading(headingId);
+  }
 
-function connectBridgeSignals(bridge: MarkdBridge): void {
+  openExternal(url: string): void {
+    if (window.markdBridge && typeof window.markdBridge.openExternalUrl === 'function') {
+      window.markdBridge.openExternalUrl(url);
+      return;
+    }
+    if (window.session && typeof window.session.openExternal === 'function') {
+      window.session.openExternal(url);
+    }
+  }
+
+  copyToClipboard(text: string): void {
+    if (window.session && typeof window.session.copyToClipboard === 'function') {
+      window.session.copyToClipboard(text);
+      return;
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text);
+    }
+  }
+
+  private connectBridgeSignals(bridge: MarkdBridge): void {
     if (bridge.renderDocument && typeof bridge.renderDocument.connect === 'function') {
-        bridge.renderDocument.connect(onBridgeRenderDocument);
+      bridge.renderDocument.connect((markdown: unknown, options?: RenderOptions): void => {
+        this.targets.renderer.render(markdown, options);
+      });
     }
     if (bridge.navigateToHeading && typeof bridge.navigateToHeading.connect === 'function') {
-        bridge.navigateToHeading.connect(onBridgeNavigateHeading);
+      bridge.navigateToHeading.connect((headingId: string, behavior?: ScrollBehavior): void => {
+        this.targets.navigator.scrollToHeading(headingId, behavior);
+      });
     }
     if (bridge.setTheme && typeof bridge.setTheme.connect === 'function') {
-        bridge.setTheme.connect(syncMermaidTheme);
+      bridge.setTheme.connect((themeName: string): void => {
+        this.targets.renderer.setTheme(themeName);
+      });
     }
     if (bridge.scrollToRatio && typeof bridge.scrollToRatio.connect === 'function') {
-        bridge.scrollToRatio.connect(onBridgeScrollRatio);
+      bridge.scrollToRatio.connect((ratio: unknown): void => {
+        this.targets.navigator.scrollToRatio(ratio);
+      });
     }
-}
+  }
 
-function flushPendingRenderSignals(): void {
-    while (pendingRenderSignals.length > 0) {
-        const queued = pendingRenderSignals.shift()!;
-        renderMarkdown(queued.markdown, queued.options);
+  private flushPendingSignals(): void {
+    while (this.state.pendingQueue.length > 0) {
+      const queued = this.state.pendingQueue.shift()!;
+      this.targets.renderer.render(queued.markdown, queued.options);
     }
-}
+  }
 
-function attachMarkdBridge(bridge: MarkdBridge): void {
+  private attachBridge(bridge: MarkdBridge): void {
     if (typeof Object.freeze === 'function') {
-        Object.freeze(bridge);
+      Object.freeze(bridge);
     }
     bridge.logMessage('QWebChannel connected to render.js');
-    connectBridgeSignals(bridge);
-    flushPendingRenderSignals();
+    this.connectBridgeSignals(bridge);
+    this.flushPendingSignals();
     if (typeof bridge.bridgeReady === 'function') {
-        bridge.bridgeReady();
+      bridge.bridgeReady();
     }
-}
+  }
 
-function attachSessionSignals(session: MarkdSession): void {
+  private attachSessionSignals(session: MarkdSession): void {
     if (session.markdownChanged && typeof session.markdownChanged.connect === 'function') {
-        session.markdownChanged.connect(handleSessionMarkdownChanged);
+      session.markdownChanged.connect((newMarkdown: string): void => {
+        this.handleSessionMarkdownChanged(newMarkdown);
+      });
     }
     if (session.selectedHeadingChanged && typeof session.selectedHeadingChanged.connect === 'function') {
-        session.selectedHeadingChanged.connect(onSessionHeadingSelected);
+      session.selectedHeadingChanged.connect((headingId: string): void => {
+        this.targets.navigator.scrollToHeading(headingId);
+      });
     }
-}
+  }
 
-function handleChannelConnected(channel: QWebChannelResult): void {
+  private handleChannelConnected(channel: QWebChannelResult): void {
     window.markdBridge = channel.objects.markdBridge;
     window.session = channel.objects.session;
-    isBridgeConnected = true;
+    this.state.connected = true;
 
     if (window.markdBridge) {
-        attachMarkdBridge(window.markdBridge);
+      this.attachBridge(window.markdBridge);
     }
     if (window.session) {
-        attachSessionSignals(window.session);
+      this.attachSessionSignals(window.session);
     }
-}
+  }
 
-function initQWebChannel(): void {
+  connect(): void {
     if (typeof QWebChannel === 'undefined' || typeof qt === 'undefined' || !qt.webChannelTransport) {
-        return;
+      return;
     }
-    new QWebChannel(qt.webChannelTransport, handleChannelConnected);
-}
+    new QWebChannel(qt.webChannelTransport, (channel: QWebChannelResult): void => {
+      this.handleChannelConnected(channel);
+    });
+  }
 
-function bootstrapQWebChannel(): void {
+  bootstrap(): void {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initQWebChannel);
-        return;
+      document.addEventListener('DOMContentLoaded', (): void => this.connect());
+      return;
     }
-    initQWebChannel();
+    this.connect();
+  }
 }

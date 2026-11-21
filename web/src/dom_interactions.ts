@@ -1,54 +1,46 @@
-// Global anchor navigation interception and code block copy delegation
+// Delegated DOM click router for code block clipboard copy, internal anchors, and external links
 
-function dispatchClipboardWrite(rawCode: string): void {
-    if (window.session && typeof window.session.copyToClipboard === 'function') {
-        window.session.copyToClipboard(rawCode);
-        return;
-    }
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard.writeText(rawCode);
-    }
-}
+class DomInteractionRouter {
+  private readonly bridge: IBridgeHost;
+  private readonly navigator: ScrollNavigator;
 
-function scheduleCopyButtonReset(copyBtn: CopyButtonElement): void {
+  constructor(bridge: IBridgeHost, navigator: ScrollNavigator) {
+    this.bridge = bridge;
+    this.navigator = navigator;
+    document.addEventListener('click', (e: MouseEvent): void => {
+      this.handleDocumentClick(e);
+    });
+  }
+
+  private scheduleCopyReset(copyBtn: CopyButtonElement): void {
     if (copyBtn._copyTimeoutId) {
-        clearTimeout(copyBtn._copyTimeoutId);
+      clearTimeout(copyBtn._copyTimeoutId);
     }
-    copyBtn._copyTimeoutId = setTimeout(function (): void {
-        copyBtn.textContent = 'Copy';
-        copyBtn.classList.remove('copied');
-        copyBtn._copyTimeoutId = null;
+    copyBtn._copyTimeoutId = setTimeout((): void => {
+      copyBtn.textContent = 'Copy';
+      copyBtn.classList.remove('copied');
+      copyBtn._copyTimeoutId = null;
     }, 1500);
-}
+  }
 
-function handleCodeCopyClick(copyBtn: CopyButtonElement): void {
+  private handleCodeCopy(copyBtn: CopyButtonElement): void {
     const card = copyBtn.closest('.code-block-card');
     const codeEl = card ? card.querySelector('pre > code') : null;
     if (!codeEl) return;
     const rawCode = codeEl.textContent!.replace(/\n$/, '');
-    dispatchClipboardWrite(rawCode);
+    this.bridge.copyToClipboard(rawCode);
     copyBtn.textContent = 'Copied!';
     copyBtn.classList.add('copied');
-    scheduleCopyButtonReset(copyBtn);
-}
+    this.scheduleCopyReset(copyBtn);
+  }
 
-function dispatchExternalLink(href: string): void {
-    if (window.markdBridge && typeof window.markdBridge.openExternalUrl === 'function') {
-        window.markdBridge.openExternalUrl(href);
-        return;
-    }
-    if (window.session && typeof window.session.openExternal === 'function') {
-        window.session.openExternal(href);
-    }
-}
-
-function handleDocumentClick(e: MouseEvent): void {
+  private handleDocumentClick(e: MouseEvent): void {
     const target = e.target as (EventTarget & { closest?: (selector: string) => Element | null }) | null;
     if (!target || typeof target.closest !== 'function') return;
     const copyBtn = target.closest('.copy-btn') as CopyButtonElement | null;
     if (copyBtn) {
-        handleCodeCopyClick(copyBtn);
-        return;
+      this.handleCodeCopy(copyBtn);
+      return;
     }
     const anchor = target.closest('a');
     if (!anchor) return;
@@ -56,11 +48,10 @@ function handleDocumentClick(e: MouseEvent): void {
     if (!href) return;
     e.preventDefault();
     if (href.startsWith('#')) {
-        const targetId = decodeURIComponent(href.slice(1));
-        scrollToHeading(targetId);
-        return;
+      const targetId = decodeURIComponent(href.slice(1));
+      this.navigator.scrollToHeading(targetId);
+      return;
     }
-    dispatchExternalLink(href);
+    this.bridge.openExternal(href);
+  }
 }
-
-document.addEventListener('click', handleDocumentClick);

@@ -11,20 +11,10 @@ for (let i = 0; i < BASE64_CHARS.length; i++) {
 }
 
 const RUNTIME_MODULES = [
-    'dom_security',
-    'bridge_channel',
-    'dom_interactions',
-    'markdown_engine',
-    'mermaid_loader',
-    'mermaid_renderer',
-    'frontmatter_parser',
-    'frontmatter_renderer',
-    'scroll_navigation',
-    'block_resize',
-    'diagram_containers',
-    'fullview_zoom',
-    'fullview_modal',
-    'render'
+    'dom_sanitizer', 'frontmatter_parser', 'frontmatter_renderer', 'document_compiler',
+    'block_size_memory', 'block_resize', 'zoom_pan_viewport', 'fullview_modal',
+    'mermaid_loader', 'mermaid_enhancer', 'table_enhancer', 'code_block_enhancer',
+    'scroll_navigator', 'bridge_channel', 'dom_interactions', 'render_pipeline', 'render'
 ];
 
 function parseTscPath(argv, webDir) {

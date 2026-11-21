@@ -270,4 +270,56 @@ describe('Compiled runtime bootstrap and async mutex invariants', function () {
         await Promise.all([first, second, third]);
         assert.equal(maxInFlight, 1);
     });
+
+    it('rerenders the latest queued document on setTheme without clobbering it with stale markdown', async function () {
+        const webDir = path.resolve(__dirname, '..');
+        const dom = new JSDOM('<!DOCTYPE html><html><body class="is-hydrating"><div id="content"></div></body></html>', {
+            runScripts: 'dangerously',
+            url: 'http://localhost/'
+        });
+        const win = dom.window;
+        win.matchMedia = function () { return { matches: false, addEventListener: function () {} }; };
+        win.markdownit = function () {
+            return {
+                utils: { escapeHtml: function (s) { return s; }, unescapeAll: function (s) { return s; } },
+                renderer: { rules: {} },
+                use: function () { return this; },
+                render: function (s) {
+                    if (s.indexOf('graph TD') !== -1) return '<pre><code class="language-mermaid">' + s + '</code></pre>';
+                    return '<h1>' + s + '</h1>';
+                }
+            };
+        };
+        win.DOMPurify = { addHook: function () {}, sanitize: function (s) { return s; } };
+        win.hljs = { getLanguage: function () { return false; }, highlight: function (s) { return { value: s }; } };
+        win.scrollTo = function () {};
+        win.IntersectionObserver = class { observe() {} disconnect() {} };
+
+        let releaseFirst = null;
+        win.mermaid = {
+            initialize: function () {},
+            run: function (opts) {
+                return new Promise(function (resolve) {
+                    releaseFirst = function () {
+                        opts.nodes[0].innerHTML = '<svg><text>Stale Diagram</text></svg>';
+                        resolve();
+                    };
+                });
+            }
+        };
+
+        const renderPath = path.join(webDir, 'dist', 'render.js');
+        new vm.Script(fs.readFileSync(renderPath, 'utf8'), { filename: renderPath }).runInContext(dom.getInternalVMContext());
+
+        const firstRender = win.renderMarkdown('graph TD; A-->Stale');
+        const secondRender = win.renderMarkdown('# Latest Document');
+        win.setTheme('dark');
+
+        releaseFirst();
+        await Promise.all([firstRender, secondRender]);
+        await new Promise(function (resolve) { setTimeout(resolve, 10); });
+
+        assert.equal(win.document.documentElement.getAttribute('data-theme'), 'dark');
+        assert.equal(win.document.getElementById('content').innerHTML, '<h1># Latest Document</h1>');
+    });
 });

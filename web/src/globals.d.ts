@@ -131,4 +131,5 @@ interface Window {
     wrapTables: () => void;
     attachCodeBlockResizeHandles: () => void;
     handleSessionMarkdownChanged: (newMarkdown: string) => void;
+    initQWebChannel: () => void;
 }
